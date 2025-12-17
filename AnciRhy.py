@@ -8,10 +8,13 @@ from collections import defaultdict
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QVBoxLayout, QLabel, QPushButton,
                              QGridLayout, QHBoxLayout, QMessageBox,
-                             QLineEdit, QFrame, QSizePolicy, QScrollArea, QTableWidgetItem, QTableWidget, QHeaderView)
+                             QLineEdit, QFrame, QSizePolicy, QScrollArea, QTableWidgetItem, QTableWidget, QHeaderView,
+                             QProgressDialog)
 from PyQt5.QtGui import QFont, QPixmap, QIcon
 from PyQt5.QtCore import Qt, pyqtSignal, QSharedMemory, QSystemSemaphore
 import sqlite3
+
+from PyQt5.uic.properties import QtCore
 
 shanggushengipa_select = ""
 zhonggushengchar_select = ""
@@ -222,6 +225,9 @@ class ZhongguyunWindow(QWidget):
 
         self.initUI()
 
+        # 添加标记，判断deng_button是否高亮
+        self.is_deng_button_highlighted = False  # 初始为未高亮
+
         # 连接信号到表格更新的槽函数
         self.zhongguyun_loaded_signal.connect(self.update_table)
 
@@ -274,7 +280,7 @@ class ZhongguyunWindow(QWidget):
         # 将按钮布局放入主布局
         self.main_layout.addWidget(button_frame)
 
-        # 2. R半部分 __________________
+        # 2. 中间部分 __________________
 
         # 创建表格布局
         self.table_layout = QGridLayout()
@@ -290,6 +296,77 @@ class ZhongguyunWindow(QWidget):
         # 将 QScrollArea 添加到主布局
         self.main_layout.addWidget(scroll_area)
 
+    #3.右半部分——————————————新菜单
+
+        # 创建垂直布局 menu_layout
+        menu_layout = QVBoxLayout()
+
+        # 创建 menuUp_frame 和 menuDown_frame
+        menuUp_frame = QFrame(self)
+        #menuUp_frame.setFixedWidth(300)
+        menuUp_frame.setFrameShape(QFrame.StyledPanel)
+
+        self.menuDown_frame = QFrame(self)
+        #menuDown_frame.setFixedWidth(300)
+        self.menuDown_frame.setFrameShape(QFrame.StyledPanel)
+
+        # 在 frame 内部设置布局
+        menuUp_layout = QVBoxLayout(menuUp_frame)
+        self.menuDown_layout = QVBoxLayout(self.menuDown_frame)
+
+        # 创建 QScrollArea 来包装 menuDown_frame，允许滚动
+        menuDown_scroll_area = QScrollArea()
+        menuDown_scroll_area.setFixedWidth(300)
+        menuDown_scroll_area.setWidgetResizable(True)
+        menuDown_scroll_area.setWidget(self.menuDown_frame)  # 将 menuDown_frame 放入滚动区域
+
+        # 向 menu_layout 添加 menuUp_frame 和 menuDown_scroll_area
+        menu_layout.addWidget(menuUp_frame)
+        menu_layout.addWidget(menuDown_scroll_area)
+
+        # 设置 menuUp_frame 和 menuDown_frame 的高度比例为 1:2
+        menu_layout.setStretch(0, 1)  # menuUp_frame 伸展因子为 1
+        menu_layout.setStretch(1, 2)  # menuDown_frame 伸展因子为 2
+
+        # 示例：添加控件到 menuUp_layout 和 menuDown_layout
+        self.cancel_button = QPushButton("取消所有標記")
+        self.deng_button = QPushButton("標出【等】")
+        self.kaihe_button = QPushButton("標出【開合】")
+        self.shengfu_button = QPushButton("標出【聲符】")
+        self.diao_button = QPushButton("標出【聲調】")
+        self.shanggusheng_button = QPushButton("標出【上古聲母】")
+        self.zhonggusheng_button = QPushButton("標出【中古聲母】")
+
+        self.cancel_button.setFont(QFont("Aa古典刻本宋", 14))
+        self.deng_button.setFont(QFont("Aa古典刻本宋",16))
+        self.kaihe_button.setFont(QFont("Aa古典刻本宋", 16))
+        self.shengfu_button.setFont(QFont("Aa古典刻本宋", 16))
+        self.diao_button.setFont(QFont("Aa古典刻本宋", 16))
+        self.shanggusheng_button.setFont(QFont("Aa古典刻本宋", 14))
+        self.zhonggusheng_button.setFont(QFont("Aa古典刻本宋", 14))
+        down_label = QLabel("圖例")
+        down_label.setFont(QFont("康熙字典體", 17))
+        down_label.setWordWrap(True)
+
+        self.deng_button.clicked.connect(self.on_deng_button_click)
+        self.cancel_button.clicked.connect(self.on_cancel_button_click)
+
+        menuUp_layout.addWidget(self.deng_button)
+        menuUp_layout.addWidget(self.kaihe_button)
+        menuUp_layout.addWidget(self.diao_button)
+        menuUp_layout.addWidget(self.shengfu_button)
+        menuUp_layout.addWidget(self.shanggusheng_button)
+        menuUp_layout.addWidget(self.zhonggusheng_button)
+        menuUp_layout.addWidget(self.cancel_button)
+
+        self.menuDown_layout.addWidget(down_label)
+
+
+        # 将 menu_layout 添加到主布局
+        self.main_layout.addLayout(menu_layout)
+
+
+
         # 设置主窗口的布局
         self.setLayout(self.main_layout)
 
@@ -302,7 +379,7 @@ class ZhongguyunWindow(QWidget):
 
         # 如果之前有选中的按钮，将其恢复默认颜色
         if self.selected_button:
-            self.selected_button.setStyleSheet("")
+            self.selected_button.setStyleSheet("color: #540A03")
 
         # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
         button.setStyleSheet("background-color: #8B2323;"
@@ -326,7 +403,7 @@ class ZhongguyunWindow(QWidget):
 
             # 查询
             sql = """
-                        SELECT 字頭, 上古韻
+                        SELECT 字頭, 上古韻, 中古等
                         FROM ancienttesttable1
                         WHERE 中古韻 = ?
                     """
@@ -358,9 +435,17 @@ class ZhongguyunWindow(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
+            # 清理 menuDown_layout（图例区域）
+        for i in reversed(range(self.menuDown_layout.count())):
+            widget = self.menuDown_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.deleteLater()
+        # 重置标记按钮
+        self.is_deng_button_highlighted = False
+        self.deng_button.setStyleSheet("color: black;")  # 恢复原来的文字颜色
         # 表头
-        header1 = QLabel("來自上古音韻部")
-        header1.setFont(QFont("康熙字典體", 20))
+        header1 = QLabel("上古所屬韻部")
+        header1.setFont(QFont("康熙字典體", 17))
         header1.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
         header1.setAlignment(Qt.AlignCenter)
         header1.setFixedHeight(80)
@@ -394,7 +479,7 @@ class ZhongguyunWindow(QWidget):
             self.table_layout.addWidget(zhongguyun_label, row_num + 1, 1)
 
             # 字头列
-            zitou_str = "  ".join(row_data["字頭"])
+            zitou_str = " ".join(row_data["字頭"])
             zitou_label = QLabel(zitou_str)
             zitou_label.setStyleSheet("border: 1px solid brown;")
             zitou_label.setFont(QFont("宋体", 20))
@@ -405,6 +490,180 @@ class ZhongguyunWindow(QWidget):
             # 将字头列添加到表格
             self.table_layout.addWidget(zitou_label, row_num + 1, 0)
 
+    def on_deng_button_click(self):
+        if self.is_deng_button_highlighted:
+            # 第二次点击时，取消高亮并执行相同的操作（清除颜色）
+            self.is_deng_button_highlighted = False
+            self.deng_button.setStyleSheet("color: #000000;")  # 恢复原来的文字颜色
+            self.clear_highlighting_in_table()
+            self.clear_legend()
+        else:
+            # 第一次点击时，保持高亮
+            self.is_deng_button_highlighted = True
+            self.deng_button.setStyleSheet("background-color: #8B2323; color: #F5F5F5; border-radius: 5px;")
+
+            # 显示加载中弹窗
+            self.show_loading_dialog()
+
+            self.highlight_table_with_deng_color()
+
+            # 加载完成后自动关闭弹窗
+            self.hide_loading_dialog()
+
+    def show_loading_dialog(self):
+        # 创建 QProgressDialog 并设置其属性
+        self.loading_dialog = QProgressDialog("加载中...", "取消", 0, 0, self)
+        self.loading_dialog.setWindowModality(Qt.WindowModal)  # 确保弹窗阻止用户操作
+
+        self.loading_dialog.setLabelText("处理中...")  # 设置弹窗提示文本
+        self.loading_dialog.setCancelButton(None)  # 禁用取消按钮
+        self.loading_dialog.setRange(0, 0)  # 设置进度范围（0 表示无限制）
+
+        # 调整弹窗宽度
+        self.loading_dialog.setMinimumWidth(400)  # 设置弹窗最小宽度为 400
+
+        # 显示弹窗
+        self.loading_dialog.show()
+
+        # 开始处理数据时，更新进度条
+        QApplication.processEvents()  # 处理事件，显示弹窗
+
+    def hide_loading_dialog(self):
+        # 隐藏加载中的弹窗
+        if hasattr(self, 'loading_dialog'):
+            self.loading_dialog.hide()
+
+    # 高亮表格中的字头函数
+    def highlight_table_with_deng_color(self):
+        # 遍历 table_layout 中的所有字头标签（QLabel）
+        for i in range(1, self.table_layout.rowCount()):
+            # 获取当前单元格位置的部件
+            item = self.table_layout.itemAtPosition(i, 0)
+            if item:  # 确保 item 不为 None
+                zitou_label = item.widget()
+                if isinstance(zitou_label, QLabel):
+                    # 获取当前字头的文本
+                    zitou_text = zitou_label.text().strip()
+                    if zitou_text:  # 确保字头文本非空
+                        # 按字头拆分文本（如果一个单元格内有多个字头）
+                        zitou_chars = list(zitou_text)
+                        # 生成一个新的 HTML 字符串
+                        html_content = ""
+                        # 对每个字头进行查询并设置颜色
+                        for char in zitou_chars:
+                            deng_value = self.query_deng_value(char)
+
+                            # 根据“中古等”的值设置颜色
+                            if deng_value == '一':
+                                color = "#1E90FF"  # 藍色一等
+                            elif deng_value == '二':
+                                color = "#228B22"  # 綠色二等
+                            elif deng_value == '三':
+                                color = "#FF8C00"  # 橙色三等
+                            elif deng_value == '四':
+                                color = "#CD1076"  # 粉色四等
+                            else:
+                                color = "#8B8989"  # 默认灰色
+
+                            # 使用 <span> 标签设置每个字头的颜色
+                            html_content += f'<span style="color: {color};">{char}</span>'
+
+                        # 更新 QLabel 的内容为带有样式的 HTML
+                        zitou_label.setText(f"<html><body>{html_content}</body></html>")
+            # 处理每一行时都要让进度框更新一次（保证它显示出来）
+            QApplication.processEvents()
+         # 在 menuDown_layout 中添加图例
+        legend_html = """
+                <html>
+                <body>
+                    <p><span style="color: #A52A2A; font-size: 50px;">【圖 例】</span></p>
+                    <p><span style="color: #1E90FF;">一等字：藍 色</span></p>
+                    <p><span style="color: #228B22;">二等字：綠 色</span></p>
+                    <p><span style="color: #FF8C00;">三等字：橙 色</span></p>
+                    <p><span style="color: #CD1076;">四等字：粉 色</span></p>
+                    <p><span style="color: #8B8989;">其他字：灰 色</span></p>
+                </body>
+                </html>
+            """
+
+        # 创建图例的 QLabel
+        legend_label = QLabel(legend_html)
+        legend_label.setFont(QFont("康熙字典體", 18))
+        legend_label.setWordWrap(True)
+
+        # 将图例 QLabel 添加到 menuDown_layout
+        self.menuDown_layout.addWidget(legend_label)
+
+    # 清空 menuDown_frame 的内容【图例】
+    def clear_legend(self):
+
+        for i in reversed(range(self.menuDown_layout.count())):
+            widget = self.menuDown_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    # 改回table字的颜色
+    def clear_highlighting_in_table(self):
+
+         #恢复 table_frame 中字符的颜色
+
+        for i in range(1, self.table_layout.rowCount()):
+            # 获取当前单元格位置的部件（第一列）
+            item = self.table_layout.itemAtPosition(i, 0)
+
+            if item:  # 确保 item 不为 None
+                zitou_label = item.widget()
+
+                if isinstance(zitou_label, QLabel):
+                    # 获取当前字头的文本（可能包含HTML标签）
+                    zitou_html = zitou_label.text().strip()
+
+                    if zitou_html:  # 确保字头文本非空
+                        # 解析出纯文本
+                        from PyQt5.QtGui import QTextDocument
+
+                        doc = QTextDocument()
+                        doc.setHtml(zitou_html)  # 设置 HTML 内容
+                        zitou_text = doc.toPlainText().strip()  # 获取纯文本
+
+                        # 恢复纯文本到 QLabel 中
+                        zitou_label.setText(zitou_text)  # 设置恢复后的纯文本内容
+
+    # 取消标记按钮
+    def on_cancel_button_click(self):
+        self.clear_highlighting_in_table()
+        self.clear_legend()
+        # 重置标记按钮
+        self.is_deng_button_highlighted = False
+        self.deng_button.setStyleSheet("color: black;")  # 恢复原来的文字颜色
+
+    # 查询当前字头的“中古等”列数据
+    def query_deng_value(self, zitou_text):
+        try:
+            # 创建数据库连接
+            connection = create_db_connection()
+            cursor = connection.cursor()
+
+            # 执行查询
+            sql = """
+                SELECT 中古等
+                FROM ancienttesttable1
+                WHERE 字頭 = ?
+            """
+            cursor.execute(sql, (zitou_text,))
+            result = cursor.fetchone()
+
+            if result:
+                return result[0]  # 返回“中古等”值
+            else:
+                return None  # 如果没有找到，返回 None
+
+        except Exception as e:
+            print(f"查询数据库时出错: {e}")
+            return None
+        finally:
+            if connection:
+                connection.close()  # 确保数据库连接被关闭
 
 #查上古韻母窗口——————————————————————————————————————————————————————————————————————————————
 class ShangguyunWindow(QWidget):
@@ -509,7 +768,7 @@ class ShangguyunWindow(QWidget):
 
         # 如果之前有选中的按钮，将其恢复默认颜色
         if self.selected_button:
-            self.selected_button.setStyleSheet("")
+            self.selected_button.setStyleSheet("color: #540A03")
 
         # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
         button.setStyleSheet("background-color: #8B2323;"
@@ -718,7 +977,7 @@ class ZhonggushengWindow(QWidget):
 
         # 如果之前有选中的按钮，将其恢复默认颜色
         if self.selected_button:
-            self.selected_button.setStyleSheet("")
+            self.selected_button.setStyleSheet("color: #540A03")
 
         # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
         button.setStyleSheet("background-color: #8B2323;"
@@ -1203,20 +1462,27 @@ class UpdateLogWindow(QMainWindow):
         log_label.setText("""
             <h3 style="font-family: '康熙字典體'; font-size: 72px; color: #8B1A1A;">更新日誌</h3>
             <ul style="font-family: '宋体'; font-size: 35px;">
-                <li>v1.0.0 - 初始版本打包發佈</li>
-                <li>v1.0.1 - 修復了部分屏幕分辨率的UI適配問題</li>
-                <li>v1.0.2 <br>  
-                                ·更新數據庫條目：修正中古韻部[咸]誤作[鹹]的錯誤；<br>
-                                ·中古音韻部查詢按鈕：基於切韻韻系、廣韻韻目重新排序；<br>
-                                ·增加[更新日誌]查看功能。<br>
+                <li>v1.1.0【當前版本】<br>
+                            ·中古音韻母查詢：嘗試標記“等”時，顯示“加载中”提示【測試功能，未來版本可能修改或移除】；<br>
+                            ·中古音韻母查詢：優化輸出結果的字間距，使文字顏色變化前後字間距一致；<br>
+                            ·更新日誌窗口：更改為倒序排列，最新版本的修改點置頂顯示，方便查閱。<br>
+                <li>v1.0.9<br>
+                            ·上古音韻母查詢、中古音聲母&韻母查詢：修復了點擊過的按鈕文字變黑的問題；<br>
+                            ·中古音韻母查詢：加入多維度標記按鈕【測試中，目前儘能標記“等”】。 <br>              
+                <li>v1.0.4 <br>
+                            ·中古音聲母查詢窗口：表格字符改動“中古音的歸屬字”→“該中古音聲母的歸屬字”；<br>
+                            ·更新日誌窗口：內容支持滾動；<br>
+                            ·上古音聲母&韻母查詢、中古音聲母&韻母查詢窗口：輸出結果時，允許點擊的按鈕保持高亮；<br>
+                            ·主窗口只允許同時存在一個，子窗口逐一適配中。 <br>  
                 <li>v1.0.3 <br>
-                                ·上古音聲母查詢窗口：更新頁面佈局與查詢邏輯；<br>
-                                ·查字窗口：支持輸入后按Enter鍵查詢。<br>
-                <li>v1.0.4 【當前版本】<br>
-                                ·中古音聲母查詢窗口：表格字符改動“中古音的歸屬字”→“該中古音聲母的歸屬字”；<br>
-                                ·更新日誌窗口：內容支持滾動；<br>
-                                ·上古音聲母&韻母查詢、中古音聲母&韻母查詢窗口：輸出結果時，允許點擊的按鈕保持高亮；<br>
-                                ·主窗口只允許同時存在一個，子窗口逐一適配中。</li>                
+                            ·上古音聲母查詢窗口：更新頁面佈局與查詢邏輯；<br>
+                            ·查字窗口：支持輸入后按Enter鍵查詢。<br>
+                <li>v1.0.2 <br>  
+                            ·更新數據庫條目：修正中古韻部[咸]誤作[鹹]的錯誤；<br>
+                            ·中古音韻部查詢按鈕：基於切韻韻系、廣韻韻目重新排序；<br>
+                            ·增加[更新日誌]查看功能。<br>                                
+                <li>v1.0.1 - 修復了部分屏幕分辨率的UI適配問題</li>                          
+                <li>v1.0.0 - 初始版本打包發佈</li>
             </ul>
         """)        #這屬於html代碼↑
         font = QFont("Aa古典刻本宋", 20)  # 设置字体和字号
