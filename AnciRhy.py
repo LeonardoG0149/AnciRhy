@@ -52,6 +52,11 @@ class MainWindow(QMainWindow):
         self.zhongguyun_window = ZhongguyunWindow()
         self.zhongguyun_window.show()
 
+    # 打开更新日志窗口的函数
+    def open_update_log_window(self):
+        self.update_log_window = UpdateLogWindow()
+        self.update_log_window.show()
+
     def __init__(self):
         super().__init__()
 
@@ -107,7 +112,7 @@ class MainWindow(QMainWindow):
 
         # 按钮文本、样式、颜色和命令
         buttons_texts = ["查字", "查上古音·声母", "查中古音·声母", "查上古音·韵部", "查中古音·韵部"]
-        button_fonts = [QFont("Aa古典刻本宋", 20) for _ in buttons_texts]
+        button_fonts = [QFont("Aa古典刻本宋", 18) for _ in buttons_texts]
         button_colors = ["#CA6503", "#3C0D00", "#3C0D00", "#8E4A37", "#8E4A37"]
         button_commands = [self.open_search_chara_window,
                            self.open_shanggusheng_window,
@@ -138,6 +143,28 @@ class MainWindow(QMainWindow):
             layout.setColumnStretch(i, 1)
         # 在按钮下方添加弹性空间，使按钮向上移动
         layout.setRowStretch(2, 1)  # 在第三行（按钮下方）设置弹性
+
+        # 创建更新日志按钮，并设置其外观类似超链接
+        log_button = QPushButton("更新日志")
+        log_button.setStyleSheet("""
+               QPushButton {
+                   color: #A0522D;  
+                   background-color: transparent;  
+                   border: none;  
+                   text-decoration: underline;  
+                   padding: 5px;
+               }
+               QPushButton:hover {
+                   color: #551A8B;  
+               }
+           """)
+        log_button.setFont(QFont("Aa古典刻本宋", 12))  # 设置字体样式和大小
+        log_button.setCursor(Qt.PointingHandCursor)  # 鼠标悬停时显示手形光标
+        # 按钮点击事件绑定：当点击“更新日志”按钮时，打开更新日志窗口
+        log_button.clicked.connect(self.open_update_log_window)
+        # 将更新日志按钮添加到布局的底部
+        layout.addWidget(log_button, 3, 0, 1, 5, alignment=Qt.AlignCenter)
+
 
 #查中古韻母窗口——————————————————————————————————————————————————————————————————————————————
 class ZhongguyunWindow(QWidget):
@@ -182,17 +209,14 @@ class ZhongguyunWindow(QWidget):
         button_layout.setVerticalSpacing(20)  # 设置按钮上下之间的间距
 
         # 字符列表
-        zhongguyunchars = ["德", "登", "東", "冬", "鐸", "廢", "乏", "凡",
-             "歌", "耕", "庚", "夬", "咍", "寒", "豪", "合", "曷",
-             "盍", "麧", "痕", "侯", "灰", "魂", "緝", "祭", "佳",
-             "鹹", "江", "覺", "皆", "麻", "麥", "模", "陌",
-             "沒", "齊", "迄", "洽", "侵", "清", "青", "山", "删", "泰",
-             "談", "帖", "覃", "添", "唐", "微", "文", "沃", "屋", "物",
-             "昔", "錫", "黠", "狎", "鎋", "先", "仙", "銜", "蕭",
-             "宵", "屑", "薛", "嚴", "鹽", "陽", "肴", "藥",
-             "葉", "業", "殷", "幽", "尤", "魚", "虞", "元",
-             "月", "真", "臻", "蒸", "之", "支", "脂", "職",
-             "質", "櫛", "鍾", "燭"]
+        zhongguyunchars = ["東", "屋", "冬", "沃", "鍾", "燭", "江", "覺", "支", "脂",
+                        "之", "微", "魚", "虞", "模", "齊", "祭", "泰",
+                        "佳", "皆", "夬", "灰", "咍", "廢", "真", "質", "臻", "櫛",
+                        "文", "物", "殷", "迄", "元", "月", "魂", "沒", "痕", "寒", "曷", "删", "黠", "山", "鎋",
+                        "先", "屑", "仙", "薛", "蕭", "宵", "肴", "豪", "歌", "麻",
+                        "陽", "藥", "唐", "鐸", "庚", "陌", "耕", "麥", "清", "昔", "青", "錫", "蒸", "職", "登", "德",
+                        "尤", "侯", "幽", "侵", "緝", "覃", "合", "談", "盍", "鹽", "葉", "添", "帖",
+                        "咸", "洽", "銜", "狎", "嚴", "業", "凡", "乏", "麧"]
         row = 0  # 初始行数
         column = 0  # 初始列数
 
@@ -795,7 +819,8 @@ class ShanggushengWindow(QWidget):
         for i, shanggushengipa in enumerate(shanggushengipas):
             button = QPushButton(shanggushengipa, self)
             button.setFont(QFont("IpaP", 16))
-            button.setFixedWidth(80)
+            button.setFixedWidth(90)
+            button.setMinimumHeight(60)
             button.clicked.connect(self.create_click_handler(shanggushengipa))  # 正确绑定点击事件
             button_layout.addWidget(button, i // 20, i % 20)  # 每行放置20个按钮
 
@@ -1096,7 +1121,7 @@ class SearchCharaWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("古音查詢 - 查字")
-        self.setGeometry(100, 100, 1500, 700)
+        self.setGeometry(200, 200, 1500, 700)
         self.setMinimumSize(1400, 700)
 
         # 检查程序是否在打包环境中运行
@@ -1230,7 +1255,59 @@ class SearchCharaWindow(QWidget):
                 value_label.setAlignment(Qt.AlignCenter)
                 self.table_layout.addWidget(value_label, row_num + 1, col_num)  # 使用 row_num + 1 使其显示在第二行及以后
 
+#更新日誌窗口
+class UpdateLogWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
 
+        # 设置窗口标题和大小
+        self.setWindowTitle("古音查詢 - 更新日誌")
+        self.setGeometry(400, 300, 1300, 900)
+
+        # 检查程序是否在打包环境中运行
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS  # PyInstaller解压后的临时目录
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # 使用相对路径查找图标文件
+        icon_path = os.path.join(base_dir, 'icon.ico')
+
+        # 设置窗口图标
+        self.setWindowIcon(QIcon(icon_path))
+
+        # 设置窗口内容
+        main_widget = QWidget(self)
+        self.setCentralWidget(main_widget)
+
+        # 创建布局
+        layout = QVBoxLayout()
+        main_widget.setLayout(layout)
+
+        # 创建日志内容标签
+        log_label = QLabel()
+        log_label.setTextFormat(Qt.RichText)  # 设置为富文本模式
+        log_label.setText("""
+            <h3 style="font-family: '康熙字典體'; font-size: 72px; color: #8B1A1A;">更新日誌</h3>
+            <ul style="font-family: '宋体'; font-size: 35px;">
+                <li>v1.0.0 - 初始版本打包發佈</li>
+                <li>v1.0.1 - 修復了不同分辨率屏幕的UI適配問題</li>
+                <li>v1.0.2 <br>  
+                                ·更新數據庫條目：修正中古韻部【咸】誤作【鹹】的錯誤；<br>
+                                ·中古音韻部查詢按鈕：基於切韻韻系、廣韻韻目重新排序；<br>
+                                ·增加【更新日誌】查看功能。</li>
+            </ul>
+        """)        #這屬於html代碼↑
+        font = QFont("Aa古典刻本宋", 20)  # 设置字体和字号
+        log_label.setFont(font)
+        log_label.setAlignment(Qt.AlignTop)
+        log_label.setWordWrap(True)  # 允许自动换行
+        layout.addWidget(log_label)
+
+        # 添加一个关闭按钮
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(self.close)
+        layout.addWidget(close_button, alignment=Qt.AlignRight)
 
 #————————————————————————————————————————————————————————————————————————————————————————————
 if __name__ == '__main__':
