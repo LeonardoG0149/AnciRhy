@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QVBoxLayout, QLabel, QPushButton,
                              QGridLayout, QHBoxLayout, QMessageBox,
                              QLineEdit, QFrame, QSizePolicy, QScrollArea, QTableWidgetItem, QTableWidget, QHeaderView,
-                             QProgressDialog)
+                             QProgressDialog, QInputDialog, QToolTip)
 from PyQt5.QtGui import QFont, QPixmap, QIcon
-from PyQt5.QtCore import Qt, pyqtSignal, QSharedMemory, QSystemSemaphore
+from PyQt5.QtCore import Qt, pyqtSignal, QSharedMemory, QSystemSemaphore, QSize, QEvent, QTimer
 import sqlite3
 
 from PyQt5.uic.properties import QtCore
@@ -108,53 +108,49 @@ class MainWindow(QMainWindow):
         self.update_log_window = UpdateLogWindow()
         self.update_log_window.show()
 
+
     def __init__(self):
         super().__init__()
 
         # 设置窗口标题和大小
-
-        self.search_window = None
-        self.setWindowTitle("古音查詢 - 首頁")
+        self.setWindowTitle("賢哉古音 - 首頁")
         self.setGeometry(100, 100, 1700, 1000)
-        self.setMinimumSize(1600, 900)  # 设置固定窗口大小，禁止调整尺寸
-        #self.setWindowFlag(Qt.WindowMaximizeButtonHint, False)  # 禁止最大化按钮
+        self.setMinimumSize(1600, 900)
 
-        # 调用函数设置窗口图标
+        # 设置窗口图标
         set_window_icon(self, 'icon.ico')
 
-
-        # 创建主部件
+        # 创建主部件和垂直布局
         main_widget = QWidget(self)
         self.setCentralWidget(main_widget)
-
-        # 使用网格布局
-        layout = QGridLayout()
+        layout = QVBoxLayout()  # 使用 QVBoxLayout
         main_widget.setLayout(layout)
 
-        # 调整整个布局的边距（根据需要调整）
-        layout.setContentsMargins(50, 20, 50, 20)
+        # 设置布局的外边距与间距
+        layout.setContentsMargins(40, 30, 40, 30)
+        layout.setSpacing(20)  # 组件之间的间距
 
-        # 在按钮上方添加弹性空间，使按钮向下移动
-        layout.setRowStretch(0, 1)  # 在第一行（按钮上方）设置弹性
-
-        # 创建标题标签
-        query_label = QLabel("古 音 查 詢")
+        # 标题标签：
+        query_label = QLabel("賢 哉 古 音")
         query_label.setFont(QFont("康熙字典體", 64))
         query_label.setStyleSheet(
             """
-                QLabel {
-                        color: #8B2500;
-                        border: 1px solid #57330C; 
-                        border-radius: 15px;       
-                        padding: 16px;              
-                        }
+            QLabel {
+                color: #8B2500;
+                border: 2px solid #A0522D;  
+                border-radius: 15px;
+                padding: 16px;
+                background: qlineargradient(
+                    spread: pad, x1: 0, y1: 0, x2: 1, y2: 0,
+                    stop: 0 #FFEBD2 , stop: 1 #F2EFEC );  /* 米黄色到象牙色的渐变 */
+            }
             """)
         query_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(query_label, 0, 0, 1, 5, alignment=Qt.AlignCenter)
+        layout.addWidget(query_label)  # 添加标题到垂直布局
 
-        # 按钮文本、样式、颜色和命令
+        # 创建按钮
         buttons_texts = ["查字", "查上古音·声母", "查中古音·声母", "查上古音·韵部", "查中古音·韵部"]
-        button_fonts = [QFont("Aa古典刻本宋", 18) for _ in buttons_texts]
+        button_fonts = QFont("Aa古典刻本宋", 18)
         button_colors = ["#CA6503", "#3C0D00", "#3C0D00", "#8E4A37", "#8E4A37"]
         button_commands = [self.open_search_chara_window,
                            self.open_shanggusheng_window,
@@ -162,52 +158,157 @@ class MainWindow(QMainWindow):
                            self.open_shangguyun_window,
                            self.open_zhongguyun_window]
 
-        # 创建按钮并添加到布局
-        for i, (text, font, color, command) in enumerate(zip(buttons_texts, button_fonts, button_colors, button_commands)):
+        # 创建按钮容器布局（QHBoxLayout）放置按钮，使用柔和的色调
+        button_layout = QHBoxLayout()  # 使用水平布局放置按钮
+        for text, color, command in zip(buttons_texts, button_colors, button_commands):
             button = QPushButton(text)
-            button.setFont(font)
-            button.setStyleSheet(f"color: {color}; padding: 20px 5px;")
-            button.setCursor(Qt.PointingHandCursor)  # 鼠标悬停时显示手形光标
-            # 为每个按钮设置点击事件
-            if text == "查字":
-                button.clicked.connect(self.open_search_chara_window)  # 点击“查字”按钮时打开窗口
-            elif text == "查上古音·声母":
-                button.clicked.connect(self.open_shanggusheng_window)
-            elif text == "查中古音·声母":
-                button.clicked.connect(self.open_zhonggusheng_window)
-            elif text == "查上古音·韵部":
-                button.clicked.connect(self.open_shangguyun_window)
-            elif text =="查中古音·韵部":
-                button.clicked.connect(self.open_zhongguyun_window)
-            layout.addWidget(button, 1, i)
+            button.setFont(button_fonts)
+            button.setStyleSheet(f"""
+                QPushButton {{
+                    color: {color}; padding: 20px 5px;
+                }}
+                QPushButton:hover {{
+                    font-weight: bold;
+                }}
+            """)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(command)
+            button_layout.addWidget(button)  # 将按钮添加到水平布局
 
-        # 设置列的伸展比例
-        for i in range(len(buttons_texts)):
-            layout.setColumnStretch(i, 1)
-        # 在按钮下方添加弹性空间，使按钮向上移动
-        layout.setRowStretch(2, 1)  # 在第三行（按钮下方）设置弹性
+        layout.addLayout(button_layout)  # 将按钮水平布局添加到主垂直布局
 
-        # 创建更新日志按钮，并设置其外观类似超链接
-        log_button = QPushButton("v1.1.9  更新日志")
+
+        bottom_layout = QHBoxLayout()
+
+        # 更新日志按钮样式优化
+        log_button = QPushButton("v1.2.3  更新日志")
         log_button.setStyleSheet("""
-               QPushButton {
-                   color: #A0522D;  
-                   background-color: transparent;  
-                   border: none;  
-                   text-decoration: underline;  
-                   padding: 5px;
-               }
-               QPushButton:hover {
-                   color: #551A8B;  
-               }
-           """)
-        log_button.setFont(QFont("Aa古典刻本宋", 12))  # 设置字体样式和大小
-        log_button.setCursor(Qt.PointingHandCursor)  # 鼠标悬停时显示手形光标
-        # 按钮点击事件绑定：当点击“更新日志”按钮时，打开更新日志窗口
+           QPushButton {
+               color: #B22222;  /* 不饱和的红色 */
+               background-color: transparent;
+               border: none;
+               text-decoration: underline;
+               padding: 5px;
+           }
+           QPushButton:hover {
+               color: #551A8B;           
+           }
+       """)
+        log_button.setFont(QFont("Aa古典刻本宋", 12))
+        log_button.setCursor(Qt.PointingHandCursor)
         log_button.clicked.connect(self.open_update_log_window)
-        # 将更新日志按钮添加到布局的底部
-        layout.addWidget(log_button, 3, 0, 1, 5, alignment=Qt.AlignCenter)
+        bottom_layout.addWidget(log_button, alignment= Qt.AlignLeft | Qt.AlignBottom)  # 将更新日志按钮添加到垂直布局
 
+
+
+        # 创建帮助 bot 的按钮，带机器人图标__________________________________
+        self.bot_button = QPushButton(self)
+        self.bot_button.setIcon(QIcon(self.resource_path('bot.png')))  # 设置小机器人图标
+        self.bot_button.setIconSize(QSize(94, 94))  # 设置图标的大小
+        self.bot_button.setFixedSize(110, 110)  # 设置按钮大小
+        self.bot_button.setCursor(Qt.PointingHandCursor)
+
+        # 设置按钮样式，去除边框
+        self.bot_button.setStyleSheet("""
+            QPushButton {
+                border: none;  /* 去掉按钮边框 */
+                background-color: transparent;  /* 背景透明 */
+            }
+            QPushButton:hover {
+                background-color: transparent;  /* 悬停时背景也保持透明 */
+            }
+        """)
+
+        # 添加眨眼效果
+        self.bot_icon_default = QIcon(self.resource_path('bot.png'))  # 默认睁眼图标
+        self.bot_icon_blink = QIcon(self.resource_path('bot3.png'))  # 闭眼图标
+        self.bot_icon_hover = QIcon(self.resource_path('bot2.png')) #懸停樣式
+
+        # 计时器用于眨眼效果
+        self.blink_timer = QTimer(self)
+        self.blink_timer.timeout.connect(self.blink_bot_icon)
+        self.blink_timer.start(2400)  # 每2.4秒触发一次
+
+        # 计时器用于眨眼结束
+        self.blink_end_timer = QTimer(self)
+        self.blink_end_timer.setSingleShot(True)
+        self.blink_end_timer.timeout.connect(self.reset_bot_icon)
+
+        # 悬停效果：鼠标进入和离开事件处理
+        self.bot_button.installEventFilter(self)
+        self.bot_button.clicked.connect(self.open_bot_dialog)  # 点击按钮打开 bot 对话框
+
+        # 设置按钮的悬停提示
+        self.bot_button.setToolTip("有问题？请告诉我")  # 悬停时显示的浮窗提示
+        QToolTip.setFont(QFont('Aa古典刻本宋', 16))  # 设置提示的字体和大小
+
+        # 将机器人按钮放在右下角
+        bottom_layout.addWidget(self.bot_button, alignment=Qt.AlignBottom | Qt.AlignRight)
+        layout.addLayout(bottom_layout)
+
+
+    def blink_bot_icon(self):
+        """切换为闭眼图标"""
+        if not self.bot_button.underMouse():  # 只有在鼠标不悬停时才眨眼
+            self.bot_button.setIcon(self.bot_icon_blink)
+            self.blink_end_timer.start(300)  # 300毫秒后切换回默认睁眼图标
+
+    def reset_bot_icon(self):
+        """恢复为睁眼图标"""
+        self.bot_button.setIcon(self.bot_icon_default)
+
+    def eventFilter(self, obj, event):
+        """监测鼠标悬停事件并动态更改图标和大小"""
+        if hasattr(self, 'bot_button') and obj == self.bot_button:
+            if event.type() == QEvent.Enter:  # 鼠标进入
+                self.blink_timer.stop()  # 停止眨眼
+                self.is_hovering = True  # 标记鼠标悬停状态
+                obj.setIcon(self.bot_icon_hover)
+                obj.setIconSize(QSize(110, 110))  # 更改图标大小
+            elif event.type() == QEvent.Leave:  # 鼠标离开
+                self.is_hovering = False  # 取消悬停状态
+                obj.setIcon(self.bot_icon_default)
+                obj.setIconSize(QSize(94, 94))  # 恢复原始大小
+                self.blink_timer.start(2400)  # 鼠标离开后重新启动眨眼计时器
+        return super().eventFilter(obj, event)
+
+    def resource_path(self, relative_path):
+        """获取资源文件的绝对路径"""
+        # PyInstaller 创建临时文件夹，并在临时文件夹中存放资源文件
+        base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base_path, relative_path)
+
+
+    def open_bot_dialog(self):
+        # 创建一个对话框模拟 bot 的对话框
+        bot_dialog = QInputDialog(self)
+        bot_dialog.setWindowTitle("賢哉Bot")
+        bot_dialog.setLabelText("請問有什麼需要幫助？")
+        bot_dialog.setFont(QFont("Aa古典刻本宋", 12))
+        bot_dialog.setOkButtonText("發送")
+        bot_dialog.setCancelButtonText("取消")
+
+        if bot_dialog.exec_():
+            user_input = bot_dialog.textValue()
+            self.handle_bot_response(user_input)
+
+    def handle_bot_response(self, user_input):
+        # 模拟 bot 的回应，根据用户输入提供帮助信息
+        if "查字" in user_input:
+            response = "查字功能可帮助您查询单个汉字的详细信息。"
+        elif "上古音" in user_input:
+            response = "上古音查询提供与上古音相关的声母或韵部信息。"
+        elif "中古音" in user_input:
+            response = "中古音查询功能提供与中古音相关的声母或韵部信息。"
+        else:
+            response = "您可以通过功能按钮查询相关的音韵信息。"
+
+        # 弹出一个对话框显示 bot 的回应
+        bot_reply = QInputDialog(self)
+        bot_reply.setWindowTitle("Bot回答中")
+        bot_reply.setLabelText(response)
+        bot_reply.setFont(QFont("Aa古典刻本宋", 12))
+        bot_reply.exec_()
 
 #查中古韻母窗口——————————————————————————————————————————————————————————————————————————————
 class ZhongguyunWindow(QWidget):
@@ -215,7 +316,7 @@ class ZhongguyunWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("古音查詢 - 查中古音·韻母")
+        self.setWindowTitle("賢哉古音 - 查中古音·韻部")
         self.setGeometry(200, 100, 1900, 1300)
         self.setMinimumSize(1400, 1100)
 
@@ -382,13 +483,13 @@ class ZhongguyunWindow(QWidget):
         # 表头
         header1 = QLabel("上古所屬韻部")
         header1.setFont(QFont("康熙字典體", 17))
-        header1.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header1.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header1.setAlignment(Qt.AlignCenter)
         header1.setFixedHeight(80)
 
         header2 = QLabel("該中古韻部的歸屬字")
         header2.setFont(QFont("康熙字典體", 20))
-        header2.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header2.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header2.setAlignment(Qt.AlignCenter)
         header2.setFixedHeight(80)
 
@@ -409,7 +510,7 @@ class ZhongguyunWindow(QWidget):
         for row_num, row_data in enumerate(data):
             # 中古音列
             zhongguyun_label = QLabel(row_data["上古韻"])
-            zhongguyun_label.setStyleSheet("border: 1px solid brown; padding: 5px; color: #CD3700; background-color: #EEE5DE;")
+            zhongguyun_label.setStyleSheet("border: 1px solid brown; padding: 10px; color: #CD3700; background-color: #EEE5DE;")
             zhongguyun_label.setFont(QFont("康熙字典體", 26))
             zhongguyun_label.setAlignment(Qt.AlignCenter)
             self.table_layout.addWidget(zhongguyun_label, row_num + 1, 1)
@@ -441,10 +542,12 @@ class ZhongguyunWindow(QWidget):
     def closeEvent(self, event):
         """窗口关闭时清空 zhongguyunchar_select 变量的值"""
         global zhongguyunchar_select
-        print("即將清空剛選中的中古韻：【"+zhongguyunchar_select+"】")
-        zhongguyunchar_select = None  # 清空变量值
-        print("窗口关闭，zhongguyunchar_select 已清空")  # 输出调试信息
-
+        if zhongguyunchar_select is not None:
+            print("即將清空剛選中的中古韻：【"+zhongguyunchar_select+"】")
+            zhongguyunchar_select = None  # 清空变量值
+            print("窗口关闭，zhongguyunchar_select 已清空")  # 输出调试信息
+        else:
+            print("沒有選中任何中古韻，zhongguyunchar_select變量的值本來就是空的，不會對變量做賦空值操作！窗口要關閉啦！")
         # 允许窗口正常关闭
         event.accept()
 
@@ -455,7 +558,7 @@ class Subtable_zhongguyun(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("古音查詢 - 查中古音·韻部 - 韻圖顯示")
+        self.setWindowTitle("賢哉古音 - 查中古音·韻部 - 韻圖顯示")
         self.setGeometry(100, 100, 1700, 1200)  # 设置窗口大小
         self.setMinimumSize(1300, 1000)
 
@@ -600,137 +703,14 @@ class Subtable_zhongguyun(QWidget):
                 kaihe = row['開合']
 
                 # 字頭分類邏輯：根据“中古等”和“中古調”填入对应的列
-                if zhonggudeng == "一":
-                    if zhonggudiaos == "平":
-                        if kaihe == "開":
-                            deng = "一等平·開"
-                        else:
-                            deng = "一等平·合"
-                    elif zhonggudiaos == "上":
-                        if kaihe == "開":
-                            deng = "一等上·開"
-                        else:
-                            deng = "一等上·合"
-                    elif zhonggudiaos == "去":
-                        if kaihe == "開":
-                            deng = "一等去·開"
-                        else:
-                            deng = "一等去·合"
-                    elif zhonggudiaos == "入":
-                        if kaihe == "開":
-                            deng = "一等入·開"
-                        else:
-                            deng = "一等入·合"
+                if zhonggudeng in ["一", "二", "三", "四", "A", "B"]:
+                    deng_type = "等" if zhonggudeng in ["一", "二", "三", "四"] else "類"
+                    deng_name = f"{zhonggudeng}{deng_type}"
 
-                elif zhonggudeng == "二":
-                    if zhonggudiaos == "平":
-                        if kaihe == "開":
-                            deng = "二等平·開"
-                        else:
-                            deng = "二等平·合"
-                    elif zhonggudiaos == "上":
-                        if kaihe == "開":
-                            deng = "二等上·開"
-                        else:
-                            deng = "二等上·合"
-                    elif zhonggudiaos == "去":
-                        if kaihe == "開":
-                            deng = "二等去·開"
-                        else:
-                            deng = "二等去·合"
-                    elif zhonggudiaos == "入":
-                        if kaihe == "開":
-                            deng = "二等入·開"
-                        else:
-                            deng = "二等入·合"
+                    if zhonggudiaos in ["平", "上", "去", "入"]:
+                        kaihe_text = "開" if kaihe == "開" else "合"
+                        deng = f"{deng_name}{zhonggudiaos}·{kaihe_text}"
 
-                elif zhonggudeng == "三":
-                    if zhonggudiaos == "平":
-                        if kaihe == "開":
-                            deng = "三等平·開"
-                        else:
-                            deng = "三等平·合"
-                    elif zhonggudiaos == "上":
-                        if kaihe == "開":
-                            deng = "三等上·開"
-                        else:
-                            deng = "三等上·合"
-                    elif zhonggudiaos == "去":
-                        if kaihe == "開":
-                            deng = "三等去·開"
-                        else:
-                            deng = "三等去·合"
-                    elif zhonggudiaos == "入":
-                        if kaihe == "開":
-                            deng = "三等入·開"
-                        else:
-                            deng = "三等入·合"
-
-                elif zhonggudeng == "四":
-                    if zhonggudiaos == "平":
-                        if kaihe == "開":
-                            deng = "四等平·開"
-                        else:
-                            deng = "四等平·合"
-                    elif zhonggudiaos == "上":
-                        if kaihe == "開":
-                            deng = "四等上·開"
-                        else:
-                            deng = "四等上·合"
-                    elif zhonggudiaos == "去":
-                        if kaihe == "開":
-                            deng = "四等去·開"
-                        else:
-                            deng = "四等去·合"
-                    elif zhonggudiaos == "入":
-                        if kaihe == "開":
-                            deng = "四等入·開"
-                        else:
-                            deng = "四等入·合"
-
-                elif zhonggudeng == "A":
-                    if zhonggudiaos == "平":
-                        if kaihe == "開":
-                            deng = "A類平·開"
-                        else:
-                            deng = "A類平·合"
-                    elif zhonggudiaos == "上":
-                        if kaihe == "開":
-                            deng = "A類平·開"
-                        else:
-                            deng = "A類平·合"
-                    elif zhonggudiaos == "去":
-                        if kaihe == "開":
-                            deng = "A類平·開"
-                        else:
-                            deng = "A類平·合"
-                    elif zhonggudiaos == "入":
-                        if kaihe == "開":
-                            deng = "A類平·開"
-                        else:
-                            deng = "A類平·合"
-
-                elif zhonggudeng == "B":
-                    if zhonggudiaos == "平":
-                        if kaihe == "開":
-                            deng = "B類平·開"
-                        else:
-                            deng = "B類平·合"
-                    elif zhonggudiaos == "上":
-                        if kaihe == "開":
-                            deng = "B類平·開"
-                        else:
-                            deng = "B類平·合"
-                    elif zhonggudiaos == "去":
-                        if kaihe == "開":
-                            deng = "B類平·開"
-                        else:
-                            deng = "B類平·合"
-                    elif zhonggudiaos == "入":
-                        if kaihe == "開":
-                            deng = "B類平·開"
-                        else:
-                            deng = "B類平·合"
                 else:
                     continue  # 如果“中古等”值不匹配，跳过该记录
 
@@ -891,7 +871,7 @@ class ShangguyunWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("古音查詢 - 查上古音·韻母")
+        self.setWindowTitle("賢哉古音 - 查上古音·韻部")
         self.setGeometry(200, 100, 1900, 1300)
         self.setMinimumSize(1400, 1100)
 
@@ -1038,13 +1018,13 @@ class ShangguyunWindow(QWidget):
         # 表头
         header1 = QLabel("到中古音屬於韻部")
         header1.setFont(QFont("康熙字典體", 18))
-        header1.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header1.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header1.setAlignment(Qt.AlignCenter)
         header1.setFixedHeight(80)
 
         header2 = QLabel("該上古韻部的歸屬字")
         header2.setFont(QFont("康熙字典體", 20))
-        header2.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header2.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header2.setAlignment(Qt.AlignCenter)
         header2.setFixedHeight(80)
 
@@ -1065,7 +1045,7 @@ class ShangguyunWindow(QWidget):
         for row_num, row_data in enumerate(data):
             # 中古音列
             shangguyun_label = QLabel(row_data["中古韻"])
-            shangguyun_label.setStyleSheet("border: 1px solid brown; color: #CD3700; background-color: #EEE5DE;")
+            shangguyun_label.setStyleSheet("border: 1px solid brown; color: #CD3700; padding: 10px; background-color: #EEE5DE;")
             shangguyun_label.setFont(QFont("康熙字典體", 26))
             shangguyun_label.setAlignment(Qt.AlignCenter)
             self.table_layout.addWidget(shangguyun_label, row_num + 1, 1)
@@ -1073,7 +1053,7 @@ class ShangguyunWindow(QWidget):
             # 字头列
             zitou_str = "  ".join(row_data["字頭"])
             zitou_label = QLabel(zitou_str)
-            zitou_label.setStyleSheet("border: 1px solid brown;")
+            zitou_label.setStyleSheet("border: 1px solid brown; padding: 10px;")
             zitou_label.setFont(QFont("宋体", 20))
             zitou_label.setWordWrap(True)
             zitou_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1089,7 +1069,7 @@ class ZhonggushengWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("古音查詢 - 查中古音·聲母")
+        self.setWindowTitle("賢哉古音 - 查中古音·聲母")
         self.setGeometry(200, 100, 1900, 1200)
         self.setMinimumSize(1400, 900)
 
@@ -1239,13 +1219,13 @@ class ZhonggushengWindow(QWidget):
         # 表头
         header1 = QLabel("來自上古音聲母")
         header1.setFont(QFont("康熙字典體", 20))
-        header1.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header1.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header1.setAlignment(Qt.AlignCenter)
         header1.setFixedHeight(80)
 
         header2 = QLabel("該中古音聲母的歸屬字")
         header2.setFont(QFont("康熙字典體", 20))
-        header2.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header2.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header2.setAlignment(Qt.AlignCenter)
         header2.setFixedHeight(80)
 
@@ -1266,7 +1246,7 @@ class ZhonggushengWindow(QWidget):
         for row_num, row_data in enumerate(data):
             # 中古音列
             zhonggusheng_label = QLabel(row_data["上古聲"])
-            zhonggusheng_label.setStyleSheet("border: 1px solid brown; color: #CD3700; background-color: #EEE5DE;")
+            zhonggusheng_label.setStyleSheet("border: 1px solid brown; color: #CD3700; padding: 10px; background-color: #EEE5DE;")
             zhonggusheng_label.setFont(QFont("IpaP", 26))
             zhonggusheng_label.setAlignment(Qt.AlignCenter)
             self.table_layout.addWidget(zhonggusheng_label, row_num + 1, 1)
@@ -1274,7 +1254,7 @@ class ZhonggushengWindow(QWidget):
             # 字头列
             zitou_str = "  ".join(row_data["字頭"])
             zitou_label = QLabel(zitou_str)
-            zitou_label.setStyleSheet("border: 1px solid brown;")
+            zitou_label.setStyleSheet("border: 1px solid brown; padding: 10px;")
             zitou_label.setFont(QFont("宋体", 20))
             zitou_label.setWordWrap(True)
             zitou_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1291,7 +1271,7 @@ class ShanggushengWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setGeometry(1, 1, 2200, 1200)
-        self.setWindowTitle("古音查詢 - 查上古音·聲母")
+        self.setWindowTitle("賢哉古音 - 查上古音·聲母")
 
         # 调用函数设置窗口图标
         set_window_icon(self, 'icon.ico')
@@ -1384,7 +1364,8 @@ class ShanggushengWindow(QWidget):
         # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
         button.setStyleSheet("background-color: #8B2323;"
                              "color: #F5F5F5;"
-                             "border-radius: 5px;")  # 设置选中按钮的背景颜色、圓角、邊框
+                             "border-radius: 5px;"
+                             "font-weight: bold")  # 设置选中按钮的背景颜色、圓角、邊框
         self.selected_button = button  # 更新为当前选中的按钮
 
         global shanggushengipa_select
@@ -1434,13 +1415,13 @@ class ShanggushengWindow(QWidget):
         # 表头
         header1 = QLabel("演變為中古音聲母")
         header1.setFont(QFont("康熙字典體", 20))
-        header1.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header1.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header1.setAlignment(Qt.AlignCenter)
         header1.setFixedHeight(80)
 
         header2 = QLabel("該上古音的歸屬字")
         header2.setFont(QFont("康熙字典體", 20))
-        header2.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
+        header2.setStyleSheet("border: 2px solid brown; color: brown; padding: 5px; background-color: #EEE9E9;")
         header2.setAlignment(Qt.AlignCenter)
         header2.setFixedHeight(80)
 
@@ -1461,7 +1442,7 @@ class ShanggushengWindow(QWidget):
         for row_num, row_data in enumerate(data):
             # shang古音列
             shanggusheng_label = QLabel(row_data["中古聲"])
-            shanggusheng_label.setStyleSheet("border: 1px solid brown; color: #CD3700; background-color: #EEE5DE;")
+            shanggusheng_label.setStyleSheet("border: 1px solid brown; color: #CD3700; padding: 10px; background-color: #EEE5DE;")
             shanggusheng_label.setFont(QFont("康熙字典體", 24))
             shanggusheng_label.setAlignment(Qt.AlignCenter)
             self.table_layout.addWidget(shanggusheng_label, row_num + 1, 1)
@@ -1469,7 +1450,7 @@ class ShanggushengWindow(QWidget):
             # 字头列
             zitou_str = "  ".join(row_data["字頭"])
             zitou_label = QLabel(zitou_str)
-            zitou_label.setStyleSheet("border: 1px solid brown;")
+            zitou_label.setStyleSheet("border: 1px solid brown; padding: 10px;")
             zitou_label.setFont(QFont("宋体", 20))
             zitou_label.setWordWrap(True)
             zitou_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1484,7 +1465,7 @@ class ShanggushengWindow(QWidget):
 class SearchCharaWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("古音查詢 - 查字")
+        self.setWindowTitle("賢哉古音 - 查字")
         self.setGeometry(200, 200, 1500, 700)
         self.setMinimumSize(1400, 700)
 
@@ -1602,7 +1583,7 @@ class SearchCharaWindow(QWidget):
         for col, header in enumerate(headers):
             header_label = QLabel(header)
             header_label.setFont(QFont("康熙字典體", 20))
-            header_label.setStyleSheet("border: 1px solid #6C1002; background-color: #FBF0F0; color: #6C1002;")
+            header_label.setStyleSheet("border: 1px solid #6C1002; background-color: #FBF0F0; padding: 5px; color: #6C1002;")
             header_label.setAlignment(Qt.AlignCenter)
             self.table_layout.addWidget(header_label, 0, col)
 
@@ -1610,8 +1591,14 @@ class SearchCharaWindow(QWidget):
         for row_num, result in enumerate(result):
             for col_num, key in enumerate(headers):
                 value_label = QLabel(str(result[key]))
-                value_label.setFont(QFont("宋体", 20))
-                value_label.setStyleSheet("border: 1px solid #8A1A00; background-color: #FFF9F9; color: #3C0D00;")
+
+                # 如果是第3列（col_num == 2）且行号大于等于0（即第二行及之后），设置字体为 IpaP
+                if col_num == 2 and row_num >= 0:
+                    value_label.setFont(QFont("IpaP", 24))
+                else:
+                    value_label.setFont(QFont("宋体", 20))
+
+                value_label.setStyleSheet("border: 1px solid #8A1A00; background-color: #FFF9F9; padding: 10px; color: #3C0D00;")
                 value_label.setAlignment(Qt.AlignCenter)
                 self.table_layout.addWidget(value_label, row_num + 1, col_num)  # 使用 row_num + 1 使其显示在第二行及以后
 
@@ -1621,7 +1608,7 @@ class UpdateLogWindow(QMainWindow):
         super().__init__()
 
         # 设置窗口标题和大小
-        self.setWindowTitle("古音查詢 - 更新日誌")
+        self.setWindowTitle("賢哉古音 - 更新日誌")
         self.setGeometry(400, 300, 1300, 900)
 
         # 调用函数设置窗口图标
@@ -1629,7 +1616,7 @@ class UpdateLogWindow(QMainWindow):
 
         # 设置窗口内容
         main_widget = QWidget(self)
-        self.setCentralWidget(main_widget) 
+        self.setCentralWidget(main_widget)
 
         # 创建布局
         layout = QVBoxLayout()
@@ -1641,7 +1628,21 @@ class UpdateLogWindow(QMainWindow):
         log_label.setText("""
             <h3 style="font-family: '康熙字典體'; font-size: 72px; color: #8B1A1A;">更新日誌</h3>
             <ul style="font-family: '楷体'; font-size: 35px; line-height: 3.8;">
-                <li>v1.1.9【當前版本】<br>
+                <li>v1.2.3【當前版本】<br>
+                            ·bot圖標：新增眨眼動畫；<br>
+                <li>v1.2.2<br>
+                            ·修復bot圖標消失的bug;<br>
+                <li>v1.2.1<br>
+                            ·首頁UI更新：增加bot用於解答問題；【問答功能測試中，後續版本完善】<br>
+                <li>v1.2.0<br>
+                            ·軟件名稱煥新，歡迎使用[賢哉古音]；<br>
+                            ·增加所有輸出結果的表格邊距，使輸出到字符不會緊貼邊框；<br>
+                            ·上古音聲母：選中按鈕時，音標字體加粗；<br>
+                            ·中古音韻部-韻圖顯示：優化了歸字填入列表時的判斷代碼；<br>
+                            ·中古音韻部：修復了未選中韻部時多次點擊“以韻圖顯示結果”會卡死的bug；<br>
+                            ·查字：上古音的聲母音標改用國際音標專用字體（IpaP）；<br>
+                            ·上古音韻部、中古音韻部查詢：窗口標題的“韻母”改為“韻部”；<br>
+                <li>v1.1.9<br>
                             ·中古音韻部-韻圖顯示：加入了篩選維度“等”；<br>
                 <li>v1.1.8<br>
                             ·中古音韻部-韻圖顯示：加入上古音聲母的顏色圖例；<br>
@@ -1652,33 +1653,33 @@ class UpdateLogWindow(QMainWindow):
                                 同時修復了結果中有概率出現白色字體的問題；<br>
                             ·代碼：優化了窗口圖標的調用方法；<br>
                 <li>v1.1.6<br>
-                            ·中古音韻部-韻圖顯示：現在可以从“等”、“中古音聲母”、“聲調”、“上古音聲母”四個維度分類顯示中古音韻母的歸屬字；<br>
+                            ·中古音韻部-韻圖顯示：現在可以从“等”、“中古音聲母”、“聲調”、“上古音聲母”四個維度分類顯示中古音韻部的歸屬字；<br>
                                 【測試中，未來版本可能保留、修改呈現形式或移除】<br>  
                             ·更新日誌：更改了日誌的文本字體；<br>
                             ·[韻圖顯示]已知問題：<br>
                                 -①程序隨機選取顏色時可能重複使用某種顏色，待修復 <br>
                                 -②在調整窗口大小時，結果表格的寬度顯示bug<br>
                 <li>v1.1.5<br>
-                            ·中古音韻部-韻圖顯示：現在可以从“等”、“中古音聲母”、“聲調”三個維度分類顯示中古音韻母的歸屬字；<br>
+                            ·中古音韻部-韻圖顯示：現在可以从“等”、“中古音聲母”、“聲調”三個維度分類顯示中古音韻部的歸屬字；<br>
                                 【測試中，未來版本可能保留、修改呈現形式或移除】<br>           
                 <li>v1.1.3<br>
                             ·中古音聲母：增加“雲”母按鈕；<br>
-                            ·中古音韻部：增加“以韻圖形式顯示”按鈕，可以在新窗口用韻圖的形式，从“等”和“中古音聲母”兩個維度分類顯示中古音韻母的歸屬字；<br>
+                            ·中古音韻部：增加“以韻圖形式顯示”按鈕，可以在新窗口用韻圖的形式，从“等”和“中古音聲母”兩個維度分類顯示中古音韻部的歸屬字；<br>
                                 【測試中，未來版本可能保留、修改呈現形式或移除】<br>                
                             ·中古音韻部：v1.0.9版本加入的篩選按鈕已移除；<br>
                 <li>v1.1.1<br>
                             ·數據庫：更正了“𥝖”字的中古音韻部數據，修改了中古音韻部查詢的相關按鈕；<br>
                 <li>v1.1.0<br>
-                            ·中古音韻母查詢：嘗試標記“等”時，顯示“加载中”提示【測試功能，未來版本可能修改或移除】；<br>
-                            ·中古音韻母查詢：優化輸出結果的字間距，使文字顏色變化前後字間距一致；<br>
+                            ·中古音韻部查詢：嘗試標記“等”時，顯示“加载中”提示【測試功能，未來版本可能修改或移除】；<br>
+                            ·中古音韻部查詢：優化輸出結果的字間距，使文字顏色變化前後字間距一致；<br>
                             ·更新日誌窗口：更改為倒序排列，最新版本的修改點置頂顯示，方便查閱。<br>
                 <li>v1.0.9<br>
-                            ·上古音韻母查詢、中古音聲母&韻母查詢：修復了點擊過的按鈕文字變黑的問題；<br>
-                            ·中古音韻母查詢：加入多維度標記按鈕【測試中，目前儘能標記“等”】。 <br>              
+                            ·上古音韻部查詢、中古音聲母&韻部查詢：修復了點擊過的按鈕文字變黑的問題；<br>
+                            ·中古音韻部查詢：加入多維度標記按鈕【測試中，目前儘能標記“等”】。 <br>              
                 <li>v1.0.4 <br>
                             ·中古音聲母查詢窗口：表格字符改動“中古音的歸屬字”→“該中古音聲母的歸屬字”；<br>
                             ·更新日誌窗口：內容支持滾動；<br>
-                            ·上古音聲母&韻母查詢、中古音聲母&韻母查詢窗口：輸出結果時，允許點擊的按鈕保持高亮；<br>
+                            ·上古音聲母&韻部查詢、中古音聲母&韻部查詢窗口：輸出結果時，允許點擊的按鈕保持高亮；<br>
                             ·主窗口只允許同時存在一個，子窗口逐一適配中。 <br>  
                 <li>v1.0.3 <br>
                             ·上古音聲母查詢窗口：更新頁面佈局與查詢邏輯；<br>
