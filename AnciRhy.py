@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QGridLayout, QHBoxLayout, QMessageBox,
                              QLineEdit, QFrame, QSizePolicy, QScrollArea, QTableWidgetItem, QTableWidget, QHeaderView)
 from PyQt5.QtGui import QFont, QPixmap, QIcon
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QSharedMemory, QSystemSemaphore
 import sqlite3
 
 shanggushengipa_select = ""
@@ -25,8 +25,40 @@ def create_db_connection():
     return connection
 
 
+#單個實例檢測
+class SingleInstanceApplication:
+    def __init__(self, key):
+        self.key = key
+        self.shared_memory = QSharedMemory(self.key)
+        self.semaphore = QSystemSemaphore(self.key + "_sem", 1)
+
+    def is_running(self):
+        """检查是否已有实例在运行"""
+        self.semaphore.acquire()
+        if not self.shared_memory.attach():
+            self.shared_memory.create(1)
+            self.semaphore.release()
+            return False
+        else:
+            self.semaphore.release()
+            return True
+
+    def activate_existing_instance(self):
+        """显示正在运行的主窗口"""
+        # 弹出警告提示用户程序已在运行
+        QMessageBox.warning(None, "警告", "程序已在运行！")
+        self.shared_memory.lock()
+        self.shared_memory.data()[0] = b'1'  # 向共享内存中写入一个标志，表示要激活窗口
+        self.shared_memory.unlock()
+
 # 主页面___________________________________________________________________
 class MainWindow(QMainWindow):
+    def show_and_raise(self):
+        """显示窗口并将其置于前台"""
+        self.show()
+        self.raise_()  # 将窗口置于其他窗口之上
+        self.activateWindow()  # 激活窗口，确保其在前台
+
     def open_search_chara_window(self):
         print("打开查字窗口")
         self.search_window = SearchCharaWindow()
@@ -208,6 +240,7 @@ class ZhongguyunWindow(QWidget):
         button_layout.setHorizontalSpacing(20)  # 设置按钮左右之间的间距
         button_layout.setVerticalSpacing(20)  # 设置按钮上下之间的间距
 
+        self.selected_button = None
         # 字符列表
         zhongguyunchars = ["東", "屋", "冬", "沃", "鍾", "燭", "江", "覺", "支", "脂",
                         "之", "微", "魚", "虞", "模", "齊", "祭", "泰",
@@ -222,13 +255,13 @@ class ZhongguyunWindow(QWidget):
 
         for zhongguyunchar in zhongguyunchars:
             button = QPushButton(zhongguyunchar, self)
-            button.setFont(QFont("康熙字典體", 19))
+            button.setFont(QFont("康熙字典體", 18))
             # 设置按钮为方形
             button.setFixedSize(70, 70)  # 宽度和高度相同，方形按钮
             # 设置按钮文字颜色
             button.setStyleSheet("color: #540A03;")  # 改变文字颜色
 
-            button.clicked.connect(self.create_click_handler(zhongguyunchar))  # 正确绑定点击事件
+            button.clicked.connect(self.create_click_handler(button, zhongguyunchar))  # 正确绑定点击事件
 
             # 将按钮添加到布局
             button_layout.addWidget(button, row, column)
@@ -242,9 +275,6 @@ class ZhongguyunWindow(QWidget):
         self.main_layout.addWidget(button_frame)
 
         # 2. R半部分 __________________
-        # 创建输入框和标签的布局
-        input_layout = QVBoxLayout()
-        self.main_layout.addLayout(input_layout)
 
         # 创建表格布局
         self.table_layout = QGridLayout()
@@ -263,12 +293,23 @@ class ZhongguyunWindow(QWidget):
         # 设置主窗口的布局
         self.setLayout(self.main_layout)
 
-    def create_click_handler(self, zhongguyunchar):
+    def create_click_handler(self, button, zhongguyunchar):
         # 返回lambda以正确处理点击事件
-        return lambda: self.on_zhongguyun_click(zhongguyunchar)
+        return lambda: self.on_zhongguyun_click(button, zhongguyunchar)
 
-    def on_zhongguyun_click(self, zhongguyunchar):
+    def on_zhongguyun_click(self, button, zhongguyunchar):
         print("点击的上古韵母：", zhongguyunchar)
+
+        # 如果之前有选中的按钮，将其恢复默认颜色
+        if self.selected_button:
+            self.selected_button.setStyleSheet("")
+
+        # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
+        button.setStyleSheet("background-color: #8B2323;"
+                             "color: #F5F5F5;"
+                             "border-radius: 5px;")  # 设置选中按钮的背景颜色、圓角、邊框
+        self.selected_button = button  # 更新为当前选中的按钮
+
         global zhongguyunchar_select
         zhongguyunchar_select = zhongguyunchar
 
@@ -408,6 +449,7 @@ class ShangguyunWindow(QWidget):
         button_layout.setVerticalSpacing(20)  # 设置按钮上下之间的间距
 
         # 字符列表
+        self.selected_button = None
         shangguyunchars = ["東", "鐸", "歌¹", "歌²", "歌³", "耕", "盍¹", "盍²",
              "盍³", "侯", "緝¹", "緝²", "緝³", "佳", "覺", "覺²", "覺³",
              "麥", "侵¹", "侵²", "侵³", "談¹", "談²", "談³", "微¹", "微²",
@@ -420,13 +462,13 @@ class ShangguyunWindow(QWidget):
 
         for shangguyunchar in shangguyunchars:
             button = QPushButton(shangguyunchar, self)
-            button.setFont(QFont("康熙字典體", 18))
+            button.setFont(QFont("康熙字典體", 17))
             # 设置按钮为方形
             button.setFixedSize(80, 80)  # 宽度和高度相同，方形按钮
             # 设置按钮文字颜色
             button.setStyleSheet("color: #540A03;")  # 改变文字颜色
 
-            button.clicked.connect(self.create_click_handler(shangguyunchar))  # 正确绑定点击事件
+            button.clicked.connect(self.create_click_handler(button, shangguyunchar))  # 正确绑定点击事件
 
             # 将按钮添加到布局
             button_layout.addWidget(button, row, column)
@@ -440,9 +482,6 @@ class ShangguyunWindow(QWidget):
         self.main_layout.addWidget(button_frame)
 
         # 2. R半部分 __________________
-        # 创建输入框和标签的布局
-        input_layout = QVBoxLayout()
-        self.main_layout.addLayout(input_layout)
 
         # 创建表格布局
         self.table_layout = QGridLayout()
@@ -461,12 +500,23 @@ class ShangguyunWindow(QWidget):
         # 设置主窗口的布局
         self.setLayout(self.main_layout)
 
-    def create_click_handler(self, shangguyunchar):
+    def create_click_handler(self, button, shangguyunchar):
         # 返回lambda以正确处理点击事件
-        return lambda: self.on_shangguyun_click(shangguyunchar)
+        return lambda: self.on_shangguyun_click(button, shangguyunchar)
 
-    def on_shangguyun_click(self, shangguyunchar):
+    def on_shangguyun_click(self, button, shangguyunchar):
         print("点击的上古韵母：", shangguyunchar)
+
+        # 如果之前有选中的按钮，将其恢复默认颜色
+        if self.selected_button:
+            self.selected_button.setStyleSheet("")
+
+        # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
+        button.setStyleSheet("background-color: #8B2323;"
+                             "color: #F5F5F5;"
+                             "border-radius: 5px;")  # 设置选中按钮的背景颜色、圓角、邊框
+        self.selected_button = button  # 更新为当前选中的按钮
+
         global shangguyunchar_select
         shangguyunchar_select = shangguyunchar
 
@@ -604,6 +654,7 @@ class ZhonggushengWindow(QWidget):
         button_layout.setHorizontalSpacing(20)  # 设置按钮左右之间的间距
         button_layout.setVerticalSpacing(20)  # 设置按钮上下之间的间距
 
+        self.selected_button = None
         # 字符列表
         zhonggushengchars = ["幫", "滂", "並", "明", "端", "透", "定", "泥",
                              "精", "清", "從", "心", "邪", "莊", "初", "崇", "生",
@@ -615,13 +666,13 @@ class ZhonggushengWindow(QWidget):
 
         for zhonggushengchar in zhonggushengchars:
             button = QPushButton(zhonggushengchar, self)
-            button.setFont(QFont("康熙字典體", 20))
+            button.setFont(QFont("康熙字典體", 18))
             # 设置按钮为方形
             button.setFixedSize(80, 80)  # 宽度和高度相同，方形按钮
             # 设置按钮文字颜色
             button.setStyleSheet("color: #540A03;")  # 改变文字颜色
 
-            button.clicked.connect(self.create_click_handler(zhonggushengchar))  # 正确绑定点击事件
+            button.clicked.connect(self.create_click_handler(button, zhonggushengchar))  # 正确绑定点击事件
 
             # 将按钮添加到布局
             button_layout.addWidget(button, row, column)
@@ -640,9 +691,6 @@ class ZhonggushengWindow(QWidget):
         self.main_layout.addWidget(button_frame)
 
         # 2. R半部分 __________________
-        # 创建输入框和标签的布局
-        input_layout = QVBoxLayout()
-        self.main_layout.addLayout(input_layout)
 
         # 创建表格布局
         self.table_layout = QGridLayout()
@@ -661,12 +709,23 @@ class ZhonggushengWindow(QWidget):
         # 设置主窗口的布局
         self.setLayout(self.main_layout)
 
-    def create_click_handler(self, zhonggushengchar):
+    def create_click_handler(self, button, zhonggushengchar):
         # 返回lambda以正确处理点击事件
-        return lambda: self.on_zhonggusheng_click(zhonggushengchar)
+        return lambda: self.on_zhonggusheng_click(button, zhonggushengchar)
 
-    def on_zhonggusheng_click(self, zhonggushengchar):
+    def on_zhonggusheng_click(self, button, zhonggushengchar):
         print("点击的中古声母：", zhonggushengchar)
+
+        # 如果之前有选中的按钮，将其恢复默认颜色
+        if self.selected_button:
+            self.selected_button.setStyleSheet("")
+
+        # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
+        button.setStyleSheet("background-color: #8B2323;"
+                             "color: #F5F5F5;"
+                             "border-radius: 5px;")  # 设置选中按钮的背景颜色、圓角、邊框
+        self.selected_button = button  # 更新为当前选中的按钮
+
         global zhonggushengchar_select
         zhonggushengchar_select = zhonggushengchar
 
@@ -721,7 +780,7 @@ class ZhonggushengWindow(QWidget):
         header1.setAlignment(Qt.AlignCenter)
         header1.setFixedHeight(80)
 
-        header2 = QLabel("中古音的歸屬字")
+        header2 = QLabel("該中古音聲母的歸屬字")
         header2.setFont(QFont("康熙字典體", 20))
         header2.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
         header2.setAlignment(Qt.AlignCenter)
@@ -763,8 +822,12 @@ class ZhonggushengWindow(QWidget):
 
 #查上古声母窗口_______________________________________________________________________________
 class ShanggushengWindow(QWidget):
+    # 定义一个信号，传递加载的数据
+    shanggusheng_loaded_signal = pyqtSignal(list)
+
     def __init__(self):
         super().__init__()
+        self.setGeometry(1, 1, 2200, 1200)
         self.setWindowTitle("古音查詢 - 查上古音·聲母")
 
         # 检查程序是否在打包环境中运行
@@ -781,19 +844,24 @@ class ShanggushengWindow(QWidget):
 
         self.initUI()
 
+        # 连接信号到表格更新的槽函数
+        self.shanggusheng_loaded_signal.connect(self.update_table)
+
     def initUI(self):
 
-        # 设置主布局为垂直布局
-        self.layout = QVBoxLayout()
+        # 设置主布局为水平布局
+        self.main_layout = QHBoxLayout()
         # 设置窗口起始位置，例如 (x, y) = (100, 100)
         self.move(1, 1)
-        # 1. 上半部分 - 放置音标按钮
+
+        global shanggushengipa_select
+
+        # 1. L半部分 - 放置音标按钮
         button_frame = QFrame(self)
-        button_frame.setFixedHeight(800)  # 固定高度
-        #button_frame.setFixedWidth(1500)
+
         button_layout = QGridLayout(button_frame)
 
-
+        self.selected_button = None  # 用于保存当前选中的按钮
         # 字符列表shanggushengipas
         shanggushengipas = ["b", "bɡˡ", "bɡʳ", "bkʳ", "bˡ", "bl", "b‧l", "bˡʲ",
              "bʳ", "b‧r", "br", "d", "dʲ", "ɢ", "ɡ", "ɢbˡ", "ɡbˡ",
@@ -816,104 +884,57 @@ class ShanggushengWindow(QWidget):
                             "skʰl", "skʰˡ", "skʰr", "skʰʳ", "skʰʷ", "skˡ", "skl", "skʳ", "skr", "skʷ", "skʷˡ", "skʷr", "skʷʳ", "sˡ",
                             "sl̥", "sm", "smˡ", "sn", "sn̥", "sŋ", "s‧ŋ", "sŋ̊", "sŋʳ", "sŋ̊r", "sp", "spʰ", "spʰr", "spˡ",
                             "spʳ", "sqʰ", "sqʰʷ", "sqʳ", "sqʷʳ", "sʳ", "sr", "st", "t", "tʰ", "tʰʲ", "tʲ", "z", "zr", "zˡ"]
+        row = 0  # 初始行数
+        column = 0  # 初始列数
+
         for i, shanggushengipa in enumerate(shanggushengipas):
             button = QPushButton(shanggushengipa, self)
-            button.setFont(QFont("IpaP", 16))
-            button.setFixedWidth(90)
-            button.setMinimumHeight(60)
-            button.clicked.connect(self.create_click_handler(shanggushengipa))  # 正确绑定点击事件
-            button_layout.addWidget(button, i // 20, i % 20)  # 每行放置20个按钮
-
-        # 将按钮布局放入主布局
-        self.layout.addWidget(button_frame)
-
-        # 2. 下半部分 - 分左右两个部分放置查询结果___________________
-
-        bottom_frame = QFrame(self)
-        bottom_frame.setFixedHeight(660)  # 固定底部区域高度
-        bottom_layout = QHBoxLayout(bottom_frame)
-
-        # 左侧布局 - 分为上下两个部分__________________________________________________
-        left_frame = QFrame(bottom_frame)
-        left_layout = QVBoxLayout(left_frame)
-
-        # 左上半部分 - leftUp_frame
-        leftUp_frame = QFrame(left_frame)
-        leftUp_frame.setFixedHeight(100)  # 固定高度
-        leftUp_layout = QVBoxLayout(leftUp_frame)
-        result_label_up = QLabel("屬於該上古聲母的字")
-        result_label_up.setFont(QFont("康熙字典體", 22))
-        result_label_up.setStyleSheet("color: brown;")  # 设置字体颜色为红色
-        result_label_up.setAlignment(Qt.AlignCenter)
-        leftUp_layout.addWidget(result_label_up)
-
-        # 左下半部分 - 可滚动区域
-        scroll_area = QScrollArea(left_frame)
-        scroll_area.setWidgetResizable(True)  # 滚动区域自动适应内容大小
-        # 设置scroll_area的大小策略，保持宽度不超过父容器
-        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        scroll_area.setFixedHeight(510)  # 固定高度
-        # leftDown_frame 是实际显示内容的部分
-        leftDown_frame = QFrame()
-        leftDown_layout = QVBoxLayout(leftDown_frame)
-
-        # 设置滚动区域中的内容
-        self.result_label_1 = QLabel()
-        self.result_label_1.setFont(QFont("宋体", 22))
-        self.result_label_1.setAlignment(Qt.AlignCenter)
-        self.result_label_1.setWordWrap(True)  # 自动换行，防止内容超出边界
-
-        # 为leftDown_frame设置边框
-        leftDown_frame.setStyleSheet("border: 1px solid brown;")
-        leftDown_layout.addWidget(self.result_label_1)
-
-        # 将 leftDown_frame 设置为 scroll_area 的内容
-        scroll_area.setWidget(leftDown_frame)
-
-        # 将上半部分和滚动区域添加到左侧布局
-        left_layout.addWidget(leftUp_frame)
-        left_layout.addWidget(scroll_area)
-        # 设置左侧frame的大小策略，确保其宽度和右侧frame保持一致
-        left_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        # 右侧布局__已移除，不再需要
-
-        # 将frame添加到底部布局
-        bottom_layout.addWidget(left_frame)
-
-        # 将底部布局添加到主布局
-        self.layout.addWidget(bottom_frame)#______________________
-
-        # 3. 底部 - 新布局（下部分），水平居中放一个按钮，布局高度为80
-        bottom_button_frame = QFrame(self)
-        bottom_button_frame.setFixedHeight(100)  # 固定高度
-        bottom_button_layout = QHBoxLayout(bottom_button_frame)
-
-        # 添加按钮并居R
-        bottom_button = QPushButton("用表格显示结果", self)
-        bottom_button.setFont(QFont("Aa古典刻本宋", 14))
-        bottom_button.clicked.connect(self.on_sheetbutton_click)  # 绑定点击事件
-        bottom_button_layout.addWidget(bottom_button)
-        bottom_button_layout.setAlignment(Qt.AlignRight)  # 水平居R
-
-        # 将新布局添加到主布局
-        self.layout.addWidget(bottom_button_frame)
-
-        # 设置主窗口的布局___________________________________________
-        self.setLayout(self.layout)
+            button.setFont(QFont("IpaP", 15))
+            button.setFixedWidth(80)#固定按鈕寬度
+            button.setMinimumHeight(60)#最小按鈕高度
+            button.clicked.connect(self.create_click_handler(button, shanggushengipa))  # 正确绑定点击事件
+            button_layout.addWidget(button, i // 12, i % 12)  # 每行放置n个按钮
 
 
-    def create_click_handler(self, shanggushengipa):
-        # 返回lambda以正确处理点击事件
-        return lambda: self.on_shanggusheng_click(shanggushengipa)
 
-    def on_shanggusheng_click(self, shanggushengipa):
+        # 2. R半部分 -
+
+        # 创建表格布局
+        self.table_layout = QGridLayout()
+
+        # 创建 QScrollArea 嵌入表格布局
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_widget.setLayout(self.table_layout)
+        scroll_area.setWidget(scroll_widget)
+
+
+        # 将 button_frame 和 scroll_area 添加到主布局
+        self.main_layout.addWidget(button_frame, stretch=1)  # 设置 stretch 为 1
+        self.main_layout.addWidget(scroll_area, stretch=1)  # 设置 stretch 为 1
+        # 设置主窗口的布局
+        self.setLayout(self.main_layout)
+
+    def create_click_handler(self, button,  shanggushengipa):
+        # 返回lambda以正确处理点击事件，并传入按钮
+        return lambda: self.on_shanggusheng_click(button,shanggushengipa)
+
+    def on_shanggusheng_click(self, button, shanggushengipa):
         print("你点击了: ", shanggushengipa)
+
+        # 如果之前有选中的按钮，将其恢复默认颜色
+        if self.selected_button:
+            self.selected_button.setStyleSheet("")
+
+        # 设置当前点击的按钮颜色，并记录该按钮为选中按钮
+        button.setStyleSheet("background-color: #8B2323;"
+                             "color: #F5F5F5;"
+                             "border-radius: 5px;")  # 设置选中按钮的背景颜色、圓角、邊框
+        self.selected_button = button  # 更新为当前选中的按钮
+
         global shanggushengipa_select
         shanggushengipa_select = shanggushengipa
-        # 显示"加载中..."直到查询结果加载完
-        self.result_label_1.setText("加载中……")
-
         # 启动后台线程加载数据
         threading.Thread(target=self.load_data, args=(shanggushengipa,)).start()
 
@@ -925,121 +946,14 @@ class ShanggushengWindow(QWidget):
 
             # 查询所有该声母的字及对应的上古声
             sql = """
-                SELECT DISTINCT 字頭
+                SELECT DISTINCT 字頭, 中古聲
                 FROM ancienttesttable1 
                 WHERE 上古聲 = ?
             """
             cursor.execute(sql, (shanggushengipa,))
             result = cursor.fetchall()
 
-            if result:
-                # 提取字头并显示
-                字頭_list = [item['字頭'] for item in result]
-                self.result_label_1.setText("  ".join(字頭_list))  # 用空格分隔字头
-            else:
-                self.result_label_1.setText("没有找到匹配结果。")
-
-        except Exception as e:
-            self.show_error_message(f"查询出错: {e}")
-        finally:
-            if connection:
-                connection.close()
-
-    def show_error_message(self, message):
-        QMessageBox.critical(self, "数据库错误", message)
-    def on_sheetbutton_click(self):
-
-        self.sub_window=Subsheet_shanggusheng()
-        self.sub_window.show()  # 显示子窗口
-
-#定义上古聲表格视图的子窗口——————————————————————————————————————————————————
-class Subsheet_shanggusheng(QWidget):
-    update_table_signal = pyqtSignal(list)  # 定义信号
-
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("古音查詢 - 查上古音·聲母 - 表格顯示")
-        self.setGeometry(100, 100, 1700, 1200)  # 设置窗口大小
-        self.setMinimumSize(1300,1000)
-
-        # 检查程序是否在打包环境中运行
-        if getattr(sys, 'frozen', False):
-            base_dir = sys._MEIPASS  # PyInstaller解压后的临时目录
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # 使用相对路径查找图标文件
-        icon_path = os.path.join(base_dir, 'icon.ico')
-
-        # 设置窗口图标
-        self.setWindowIcon(QIcon(icon_path))
-
-        # 创建主布局
-        layout = QVBoxLayout()
-
-        # 创建输入框和标签的布局
-        input_layout = QHBoxLayout()
-        layout.addLayout(input_layout)
-        global shanggushengipa_select
-
-        # 标签
-        label = QLabel("刚刚查询的上古音声母: ")
-        label.setFont(QFont("Aa古典刻本宋", 26))
-        label.setAlignment(Qt.AlignCenter)  # 将标签居中
-        label.setFixedHeight(80)
-        label.setContentsMargins(300, 40, 0, 40)  # 设置 label 和窗口左边的边距
-        label2 = QLabel(shanggushengipa_select)
-        label2.setFont(QFont("IpaP", 26))
-        label2.setFixedHeight(80)
-        input_layout.addWidget(label)
-        input_layout.addWidget(label2)
-
-
-        # 创建表格布局
-        self.table_layout = QGridLayout()
-        layout.addSpacing(2)  # 上方空白
-        # 创建 QScrollArea 并嵌入表格布局
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)  # 允许自动调整子窗口大小
-        scroll_widget = QWidget()
-        scroll_widget.setLayout(self.table_layout)  # 将表格布局设为 QScrollArea 的子窗口
-        scroll_area.setWidget(scroll_widget)
-
-        # 将 QScrollArea 添加到主布局中
-        layout.addWidget(scroll_area)
-
-        # 设置主窗口布局
-        self.setLayout(layout)
-
-        # 连接信号和槽
-        self.update_table_signal.connect(self.update_table)
-
-
-        # 开启线程查询数据库
-        self.load_table_data()
-
-    def load_table_data(self):
-        """创建一个新线程去查询数据库，以避免阻塞主线程"""
-        print("Loading table data...")
-        threading.Thread(target=self.query_database).start()
-
-    def query_database(self):
-        """查询数据库以获取匹配上古声IPA的结果"""
-        connection = None
-        try:
-            connection = create_db_connection()
-            cursor = connection.cursor()
-
-            # 查询所有该声母的字头和中古声
-            sql = """
-                SELECT 字頭, 中古聲 
-                FROM ancienttesttable1
-                WHERE 上古聲 = ?
-            """
-            cursor.execute(sql, (shanggushengipa_select,))
-            result = cursor.fetchall()
-
-            # 将相同的“中古声”进行分组
+            # 将结果从元组转换为字典，支持列名访问
             grouped_data = defaultdict(list)
             for row in result:
                 grouped_data[row['中古聲']].append(row['字頭'])
@@ -1047,74 +961,70 @@ class Subsheet_shanggusheng(QWidget):
             # 将 defaultdict 转换为标准的 list 类型，例如字典的列表
             grouped_data_list = [{"中古聲": key, "字頭": value} for key, value in grouped_data.items()]
 
-            # 查询完成后，通过信号传递数据回主线程更新表格
-            self.update_table_signal.emit(grouped_data_list)
+            # 发射信号，将数据传递到主线程
+            self.shanggusheng_loaded_signal.emit(grouped_data_list)
 
         except Exception as e:
             print(f"查询数据库时出错: {e}")
-
         finally:
             if connection:
                 connection.close()  # 确保数据库连接被关闭
 
-
     def update_table(self, data):
-        """在主线程中更新UI，填充表格数据"""
-
-        # 清空表格布局的现有内容
+        # 清空现有表格内容
         for i in reversed(range(self.table_layout.count())):
             widget = self.table_layout.itemAt(i).widget()
             if widget is not None:
                 widget.deleteLater()
 
-
-        # 表头行
-        header1 = QLabel("對應中古音聲母")
+        # 表头
+        header1 = QLabel("演變為中古音聲母")
         header1.setFont(QFont("康熙字典體", 20))
-        header1.setStyleSheet("border: 2px solid brown;"
-                              "color: brown; "
-                              "background-color: #EEE9E9;")
+        header1.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
         header1.setAlignment(Qt.AlignCenter)
-        header1.setFixedHeight(80)  # 设置表头的固定高度
+        header1.setFixedHeight(80)
 
-        header2 = QLabel("該上古音聲母的歸屬字")
+        header2 = QLabel("該上古音的歸屬字")
         header2.setFont(QFont("康熙字典體", 20))
-        header2.setStyleSheet("border: 2px solid brown;"
-                              "color: brown;"
-                              "background-color: #EEE9E9")
+        header2.setStyleSheet("border: 2px solid brown; color: brown; background-color: #EEE9E9;")
         header2.setAlignment(Qt.AlignCenter)
-        header2.setFixedHeight(80)  # 设置表头的固定高度
+        header2.setFixedHeight(80)
 
-        # 将表头添加到表格布局
+        # 添加表头
         self.table_layout.addWidget(header1, 0, 1)
         self.table_layout.addWidget(header2, 0, 0)
-        # 去掉布局的间隙
-        self.table_layout.setHorizontalSpacing(0)  # 去掉水平间隙
-        self.table_layout.setVerticalSpacing(0)  # 去掉垂直间隙
-        # 去掉布局的外边距
-        self.table_layout.setContentsMargins(0, 0, 0, 0)  # 上下左右的外边距都为0
+
+        # 设置布局间距
+        self.table_layout.setHorizontalSpacing(0)
+        self.table_layout.setVerticalSpacing(0)
+        self.table_layout.setContentsMargins(0, 0, 0, 0)
+
         # 设置列宽比例
-        self.table_layout.setColumnStretch(0, 5)  # 第一列的宽度比例为5
-        self.table_layout.setColumnStretch(1, 1)  # 第二列的宽度比例为1
+        self.table_layout.setColumnStretch(0, 5)  # 中古声列
+        self.table_layout.setColumnStretch(1, 1)  # 上古字头列
 
-        # 填充新数据到表格中
+        # 填充数据
         for row_num, row_data in enumerate(data):
-            # 添加中古声列
-            zhonggusheng_label = QLabel(str(row_data["中古聲"]))
-            zhonggusheng_label.setStyleSheet("border: 1px solid brown; "
-                                             "color: #CD3700; "
-                                             "background-color: #EEE5DE;")  # 增加边框
-            zhonggusheng_label.setFont(QFont("康熙字典體", 28))
-            zhonggusheng_label.setAlignment(Qt.AlignCenter)  # 水平垂直居中
-            self.table_layout.addWidget(zhonggusheng_label, row_num + 1, 1)
+            # shang古音列
+            shanggusheng_label = QLabel(row_data["中古聲"])
+            shanggusheng_label.setStyleSheet("border: 1px solid brown; color: #CD3700; background-color: #EEE5DE;")
+            shanggusheng_label.setFont(QFont("康熙字典體", 24))
+            shanggusheng_label.setAlignment(Qt.AlignCenter)
+            self.table_layout.addWidget(shanggusheng_label, row_num + 1, 1)
 
-            # 添加字头列，将相同中古声的字头合并为一个字符串
+            # 字头列
             zitou_str = "  ".join(row_data["字頭"])
             zitou_label = QLabel(zitou_str)
-            zitou_label.setStyleSheet("border: 1px solid brown;")  # 增加边框
+            zitou_label.setStyleSheet("border: 1px solid brown;")
             zitou_label.setFont(QFont("宋体", 20))
-            zitou_label.setWordWrap(True)  # 允许自动换行
+            zitou_label.setWordWrap(True)
+            zitou_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            zitou_label.setAlignment(Qt.AlignCenter)
+
+            # 将字头列添加到表格
             self.table_layout.addWidget(zitou_label, row_num + 1, 0)
+
+
 
 # 查字窗口——————————————————————————————————————————————————————————————————————————————————————
 class SearchCharaWindow(QWidget):
@@ -1164,6 +1074,9 @@ class SearchCharaWindow(QWidget):
 
         # 在布局中添加两个伸缩空间以使其居中
         input_layout.addStretch(1)
+
+        # 连接回车事件
+        self.search_chara_entry.returnPressed.connect(self.check_input)  # 按下回车键时触发查询
 
         # 创建按钮布局
         button_layout = QHBoxLayout()
@@ -1291,11 +1204,19 @@ class UpdateLogWindow(QMainWindow):
             <h3 style="font-family: '康熙字典體'; font-size: 72px; color: #8B1A1A;">更新日誌</h3>
             <ul style="font-family: '宋体'; font-size: 35px;">
                 <li>v1.0.0 - 初始版本打包發佈</li>
-                <li>v1.0.1 - 修復了不同分辨率屏幕的UI適配問題</li>
+                <li>v1.0.1 - 修復了部分屏幕分辨率的UI適配問題</li>
                 <li>v1.0.2 <br>  
-                                ·更新數據庫條目：修正中古韻部【咸】誤作【鹹】的錯誤；<br>
+                                ·更新數據庫條目：修正中古韻部[咸]誤作[鹹]的錯誤；<br>
                                 ·中古音韻部查詢按鈕：基於切韻韻系、廣韻韻目重新排序；<br>
-                                ·增加【更新日誌】查看功能。</li>
+                                ·增加[更新日誌]查看功能。<br>
+                <li>v1.0.3 <br>
+                                ·上古音聲母查詢窗口：更新頁面佈局與查詢邏輯；<br>
+                                ·查字窗口：支持輸入后按Enter鍵查詢。<br>
+                <li>v1.0.4 【當前版本】<br>
+                                ·中古音聲母查詢窗口：表格字符改動“中古音的歸屬字”→“該中古音聲母的歸屬字”；<br>
+                                ·更新日誌窗口：內容支持滾動；<br>
+                                ·上古音聲母&韻母查詢、中古音聲母&韻母查詢窗口：輸出結果時，允許點擊的按鈕保持高亮；<br>
+                                ·主窗口只允許同時存在一個，子窗口逐一適配中。</li>                
             </ul>
         """)        #這屬於html代碼↑
         font = QFont("Aa古典刻本宋", 20)  # 设置字体和字号
@@ -1304,6 +1225,12 @@ class UpdateLogWindow(QMainWindow):
         log_label.setWordWrap(True)  # 允许自动换行
         layout.addWidget(log_label)
 
+        # 创建滚动区域并将 log_label 放入
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(log_label)  # 将 log_label 设置为 QScrollArea 的子控件
+        scroll_area.setWidgetResizable(True)  # 使 log_label 在滚动区域内可调整大小
+        layout.addWidget(scroll_area)  # 将滚动区域添加到主布局
+
         # 添加一个关闭按钮
         close_button = QPushButton("关闭")
         close_button.clicked.connect(self.close)
@@ -1311,6 +1238,13 @@ class UpdateLogWindow(QMainWindow):
 
 #————————————————————————————————————————————————————————————————————————————————————————————
 if __name__ == '__main__':
+    # 创建唯一实例的检测
+    single_instance = SingleInstanceApplication("UniqueAppIdentifier")
+
+    if single_instance.is_running():
+        # 如果已有实例在运行，激活现有实例并退出
+        single_instance.activate_existing_instance()
+        sys.exit(0)
     app = QApplication(sys.argv)
     main_window = MainWindow()
     main_window.show()
