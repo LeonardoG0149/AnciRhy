@@ -9,6 +9,7 @@ import random
 import html
 import markdown
 import requests
+from PyQt5 import sip
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QVBoxLayout, QLabel, QPushButton,
                              QGridLayout, QHBoxLayout, QMessageBox,
@@ -93,7 +94,18 @@ class MainWindow(QMainWindow):
         self.cursor = self.conn.cursor()
         self.thread_connections = {}  # 存储线程ID到(connection, cursor)的映射
 
-        self.search_window = None  # 初始化为空
+        self.search_window = None  # 查字初始化为空
+        self.shanggusheng_window = None  # 上古声母窗口初始化为空
+        self.shangguyun_window = None
+        self.zhonggusheng_window = None
+        self.zhongguyun_window = None
+        self.update_log_window = None
+        self.fanqieduizhao_window = None
+        self.shengfu_sanbu_window = None
+        self.shengfu_zhonggusheng_window = None
+
+        self.shengfu_sanbu_data_cache = None  # 添加聲符散佈的数据缓存变量
+
         self.is_waiting_for_column_choice = False  # 标志位，用来跟踪是否等待用户选择列
         self.pending_character = None  # 用于存储待查询的字符
         self.confirmed_character = None  # 新增：用于存储用户确认的字符
@@ -163,11 +175,12 @@ class MainWindow(QMainWindow):
             button.clicked.connect(command)
             button_layout.addWidget(button)  # 将按钮添加到水平布局
 
-        button_layout2 = QHBoxLayout() #第二行按钮的布局
-        buttons_texts2 = ["查字（字典模式）","聲符分佈和中古音聲母"]
-        button_colors2 = ["#CA6503", "#8C0D28"]
+        button_layout2 = QHBoxLayout()  # 第二行按钮的布局
+        buttons_texts2 = ["查字（字典模式）", "反切對照查詢", ]
+        button_colors2 = ["#CA6503", "#3C0D00"]
         button_commands2 = [self.open_search_chara_window,
-                            self.open_shengfu_zhonggusheng_window]
+                            self.open_fanqieduizhao_window
+                            ]
         for text, color, command in zip(buttons_texts2, button_colors2, button_commands2):
             button2 = QPushButton(text)
             button2.setFont(button_fonts)
@@ -183,13 +196,34 @@ class MainWindow(QMainWindow):
             button2.clicked.connect(command)
             button_layout2.addWidget(button2)  # 将按钮添加到水平布局
 
+        button_layout3 = QHBoxLayout()  # 第3行按钮的布局
+        buttons_texts3 = ["《廣韻》聲符散佈", "[聲符 - 中古聲母]  關係"]
+        button_colors3 = ["#8E4A37", "#8C0D28"]
+        button_commands3 = [self.open_shengfu_sanbu_window,
+                            self.open_shengfu_zhonggusheng_window
+                            ]
+        for text, color, command in zip(buttons_texts3, button_colors3, button_commands3):
+            button3 = QPushButton(text)
+            button3.setFont(button_fonts)
+            button3.setStyleSheet(f"""
+                        QPushButton {{
+                            color: {color}; padding: 20px 5px;
+                        }}
+                        QPushButton:hover {{
+                            font-weight: bold;
+                        }}
+                    """)
+            button3.setCursor(Qt.PointingHandCursor)
+            button3.clicked.connect(command)
+            button_layout3.addWidget(button3)  # 将按钮添加到水平布局
 
         layout.addLayout(button_layout)  # 将按钮水平布局添加到主垂直布局
-        layout.addLayout(button_layout2)#第二排按钮的布局添加到主布局
+        layout.addLayout(button_layout2)  # 第2排按钮的布局添加到主布局
+        layout.addLayout(button_layout3)  # 第3排按钮的布局添加到主布局
         bottom_layout = QHBoxLayout()
 
         # 更新日志按钮样式优化
-        log_button = QPushButton("v 1.4.3 關於賢哉古音")
+        log_button = QPushButton("v 1.4.4 關於賢哉古音")
         log_button.setStyleSheet("""
            QPushButton {
                color: #B22222;  
@@ -257,7 +291,7 @@ class MainWindow(QMainWindow):
         self.api_url = "https://api.deepseek.com/v1/chat/completions"
         self.model_name = "deepseek-chat"
         self.load_api_key()  # 启动时尝试加载保存的API密钥
-        self.conversation_history = []# 对话历史记录
+        self.conversation_history = []  # 对话历史记录
         self.deepseek_thread = None  # API调用线程
         self.api_timeout = 180  # 增加超时时间
         # 内存管理相关
@@ -386,7 +420,7 @@ class MainWindow(QMainWindow):
         # 调用父类的关闭事件
         super().closeEvent(event)
 
-    #————————————下面是bot图标代碼——————————————————————————
+    # ————————————下面是bot图标代碼——————————————————————————
     def blink_bot_icon(self):
         """切换为闭眼图标"""
         if not self.bot_button.underMouse():  # 只有在鼠标不悬停时才眨眼
@@ -418,7 +452,7 @@ class MainWindow(QMainWindow):
         base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(base_path, relative_path)
 
-    #————————————下面是bot调用ai的代碼——————————————————————————
+    # ————————————下面是bot调用ai的代碼——————————————————————————
     # 线程类用于异步调用API
     class DeepSeekThread(QThread):
         response_received = pyqtSignal(str)
@@ -473,7 +507,7 @@ class MainWindow(QMainWindow):
 
         # 标题
         title_label = QLabel("DeepSeek API設置")
-        title_label.setFont(QFont("Aa古典刻本宋", 16 , QFont.Bold))
+        title_label.setFont(QFont("Aa古典刻本宋", 16, QFont.Bold))
         title_label.setStyleSheet("color: #580A00;")
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
@@ -546,7 +580,6 @@ class MainWindow(QMainWindow):
 
         # 按钮布局
         btn_layout = QHBoxLayout()
-
 
         # 重置按钮
         reset_btn = QPushButton("重置已保存的key")
@@ -724,7 +757,7 @@ class MainWindow(QMainWindow):
             if self.conversation_history:
                 # 确保只保留有效的消息对象
                 valid_history = [msg for msg in self.conversation_history
-                             if isinstance(msg, dict) and 'role' in msg and 'content' in msg]
+                                 if isinstance(msg, dict) and 'role' in msg and 'content' in msg]
                 messages.extend(valid_history[-3:])  # 只保留最近的3条历史消息
             # 3. 注入数据库知识 - 关键修改部分
             db_knowledge = self.get_db_knowledge(user_input)
@@ -751,7 +784,6 @@ class MainWindow(QMainWindow):
                     data=json.dumps(payload),
                     timeout=self.api_timeout  # 使用配置的超时时间
                 )
-
 
                 if response.status_code == 200:
                     # 获取并保存回复内容
@@ -855,7 +887,7 @@ class MainWindow(QMainWindow):
 
         for char in unique_chars:
             # 查询数据库
-            cursor.execute("SELECT * FROM ancienttesttable2 WHERE 字頭=?", (char,))
+            cursor.execute("SELECT * FROM ancienttable1 WHERE 字頭=?", (char,))
             results = cursor.fetchall()
 
             if results:
@@ -880,7 +912,7 @@ class MainWindow(QMainWindow):
             rhyme_keywords = ["韵", "部", "韵部", "韻", "韻部"]
             if any(kw in user_input for kw in rhyme_keywords):
                 # 随机提取一些韵部知识作为示例
-                cursor.execute("SELECT DISTINCT 上古韻, 中古韻 FROM ancienttesttable2 LIMIT 3")
+                cursor.execute("SELECT DISTINCT 上古韻, 中古韻 FROM ancienttable1 LIMIT 3")
                 rhyme_results = cursor.fetchall()
                 if rhyme_results:
                     knowledge.append("韵部知识示例:")
@@ -891,7 +923,7 @@ class MainWindow(QMainWindow):
             initial_keywords = ["声", "母", "声母", "聲", "聲母"]
             if any(kw in user_input for kw in initial_keywords):
                 # 随机提取一些声母知识作为示例
-                cursor.execute("SELECT DISTINCT 上古聲, 中古聲 FROM ancienttesttable2 LIMIT 3")
+                cursor.execute("SELECT DISTINCT 上古聲, 中古聲 FROM ancienttable1 LIMIT 3")
                 initial_results = cursor.fetchall()
                 if initial_results:
                     knowledge.append("声母知识示例:")
@@ -911,6 +943,42 @@ class MainWindow(QMainWindow):
 
     def open_bot_dialog(self):  # ————————————————————————————
         """创建一个聊天窗口"""
+
+        # 定义清除引用的局部函数
+        def clear_bot_window_ref():
+            """安全清除bot窗口引用"""
+            print("清除bot窗口引用")
+            if getattr(self, 'bot_chat_window', None) is not None:
+                try:
+                    if sip.isdeleted(self.bot_chat_window):
+                        self.bot_chat_window = None
+                except:
+                    self.bot_chat_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'bot_chat_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.bot_chat_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("bot窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"bot窗口引用异常: {e}")
+                self.bot_chat_window = None
+        # 创建新窗口
+        print("打开bot窗口")
+
         self.bot_chat_window = QMainWindow(self)
         self.conversation_history = []  # 每次打开聊天窗口时重置历史
         # 重写关闭事件，重置变量
@@ -928,7 +996,7 @@ class MainWindow(QMainWindow):
 
         self.bot_chat_window.setWindowTitle("賢哉Bot")
         self.bot_chat_window.setGeometry(400, 200, 700, 1000)
-        #self.bot_chat_window.setFixedSize(700, 1000)
+        # self.bot_chat_window.setFixedSize(700, 1000)
 
         # 创建主部件和布局
         central_widget = QWidget(self.bot_chat_window)
@@ -1011,8 +1079,8 @@ class MainWindow(QMainWindow):
         # =====================================
 
         # 将输入框和按钮添加到输入布局
-        input_layout.addWidget(self.input_field) #输入框
-        input_layout.addWidget(send_button)   #发送按钮
+        input_layout.addWidget(self.input_field)  # 输入框
+        input_layout.addWidget(send_button)  # 发送按钮
         input_layout.addWidget(api_setting_button)  # 设置按钮
 
         # 将输入布局加入主布局
@@ -1028,9 +1096,23 @@ class MainWindow(QMainWindow):
         if not self.api_key:
             self.add_message("賢哉Bot", "⚠️未檢測到API-key，請點按'設置'按鈕填寫DeepSeek API-key。", is_user=False)
 
-        # 设置主部件和布局
+            # 设置中心部件
         self.bot_chat_window.setCentralWidget(central_widget)
+
+        # 设置关闭时自动销毁
+        self.bot_chat_window.setAttribute(Qt.WA_DeleteOnClose)
         self.bot_chat_window.show()
+
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_bot_window_conn'):
+            try:
+                self.bot_chat_window.destroyed.disconnect(self._bot_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._bot_window_conn = clear_bot_window_ref
+        self.bot_chat_window.destroyed.connect(self._bot_window_conn)
 
     def send_message(self):
         """发送用户输入的消息，并模拟 bot 回复"""
@@ -1097,7 +1179,7 @@ class MainWindow(QMainWindow):
         elif "help" in user_input:
             return "可以直接輸入韻部、聲母、單個字。例如“東”，輸入后根據bot提示選擇查字、查聲母或查韻部。填寫API可連接到DeepSeek進行智能問答。"
         elif ("你是谁" in user_input or "你是誰" in user_input or "能幹什麼" in user_input or "能做什麼"
-              in user_input or "能干什么" in user_input or "能做什么"in user_input or "你好" in user_input):
+              in user_input or "能干什么" in user_input or "能做什么" in user_input or "你好" in user_input):
             return "我是賢哉Bot，請隨時向我提問。輸入help以獲取幫助。"
         else:
             if self.api_key:  # 如果有API密钥
@@ -1162,7 +1244,7 @@ class MainWindow(QMainWindow):
         results = {}
 
         for column in columns_to_check:
-            cursor.execute(f"SELECT COUNT(*) FROM ancienttesttable2 WHERE {column}=?", (character,))
+            cursor.execute(f"SELECT COUNT(*) FROM ancienttable1 WHERE {column}=?", (character,))
             count = cursor.fetchone()[0]
             if count > 0:
                 results[column] = count
@@ -1186,7 +1268,7 @@ class MainWindow(QMainWindow):
 
         if user_input in ["上古韻", "中古聲", "中古韻"]:
             # 查询指定列的值
-            cursor.execute(f"SELECT 字頭 FROM ancienttesttable2 WHERE {user_input}=?", (self.pending_character,))
+            cursor.execute(f"SELECT 字頭 FROM ancienttable1 WHERE {user_input}=?", (self.pending_character,))
             values = cursor.fetchall()
             response = f"所有 '{user_input}' 為 '{self.pending_character}' 的字頭：\n"
             for row in values:
@@ -1202,14 +1284,14 @@ class MainWindow(QMainWindow):
 
     def query_column_values(self, column, value):
         """查询指定列的值"""
-        self.cursor.execute(f"SELECT 字頭 FROM ancienttesttable2 WHERE {column}=?", (value,))
+        self.cursor.execute(f"SELECT 字頭 FROM ancienttable1 WHERE {column}=?", (value,))
         return self.cursor.fetchall()
 
     def query_character_info(self, character):
         """查询字头信息"""
         # 获取线程安全的游标
         cursor = self.get_thread_safe_cursor()
-        cursor.execute("SELECT * FROM ancienttesttable2 WHERE 字頭=?", (character,))
+        cursor.execute("SELECT * FROM ancienttable1 WHERE 字頭=?", (character,))
         results = cursor.fetchall()  # 获取所有结果
         result_count = len(results)  # 结果数量
 
@@ -1290,52 +1372,514 @@ class MainWindow(QMainWindow):
 
     # ————————————下面是打开各种窗口的代碼——————————————————————————
     def open_search_chara_window(self):
-        print("打开了查字窗口")
-        if self.search_window is None:
-            self.search_window = SearchCharaWindow()
+        # 定义清除引用的局部函数
+        def clear_search_ref():
+            """安全清除窗口引用"""
+            print("清除查字窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'search_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.search_window):
+                        self.search_window = None
+                except:
+                    self.search_window = None
 
-            # 设置输入框内容为已确认的字符
-        if self.confirmed_character:
-            self.search_window.search_chara_entry.setText(self.confirmed_character)
-            self.search_window.search_chara_entry.returnPressed.emit()  # 模拟按下回车键
+        # 安全访问窗口引用
+        window = getattr(self, 'search_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.search_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("查字窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"查字窗口引用异常: {e}")
+                self.search_window = None
+
+        # 创建新窗口
+        print("打开了查字窗口")
+        self.search_window = SearchCharaWindow()
+        # 设置关闭时自动销毁
+        self.search_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.search_window.show()
 
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_search_window_conn'):
+            try:
+                self.search_window.destroyed.disconnect(self._search_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._search_window_conn = clear_search_ref
+        self.search_window.destroyed.connect(self._search_window_conn)
+
     def open_shanggusheng_window(self):
-        print("打開了上古聲母窗口")
+       # 定义清除引用的局部函数
+        def clear_shanggusheng_window_ref():
+            """安全清除窗口引用"""
+            print("清除上古声窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'shanggusheng_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.shanggusheng_window):
+                        self.shanggusheng_window = None
+                except:
+                    self.shanggusheng_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'shanggusheng_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.shanggusheng_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("上古声窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"上古声窗口引用异常: {e}")
+                self.shanggusheng_window = None
+
+        # 创建新窗口
+        print("打开上古声窗口")
         self.shanggusheng_window = ShanggushengWindow()
+        # 设置关闭时自动销毁
+        self.shanggusheng_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.shanggusheng_window.show()
 
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_shanggusheng_window_conn'):
+            try:
+                self.shanggusheng_window.destroyed.disconnect(self._shanggusheng_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._shanggusheng_window_conn = clear_shanggusheng_window_ref
+        self.shanggusheng_window.destroyed.connect(self._shanggusheng_window_conn)
+
     def open_zhonggusheng_window(self):
-        print("打開了中古聲母窗口")
+       # 定义清除引用的局部函数
+        def clear_zhonggusheng_window_ref():
+            """安全清除窗口引用"""
+            print("清除中古声窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'zhonggusheng_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.zhonggusheng_window):
+                        self.zhonggusheng_window = None
+                except:
+                    self.zhonggusheng_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'zhonggusheng_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.zhonggusheng_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("中古声窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"中古声窗口引用异常: {e}")
+                self.zhonggusheng_window = None
+
+        # 创建新窗口
+        print("打开中古声窗口")
         self.zhonggusheng_window = ZhonggushengWindow()
+        # 设置关闭时自动销毁
+        self.zhonggusheng_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.zhonggusheng_window.show()
 
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_zhonggusheng_window_conn'):
+            try:
+                self.zhonggusheng_window.destroyed.disconnect(self._zhonggusheng_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._zhonggusheng_window_conn = clear_zhonggusheng_window_ref
+        self.zhonggusheng_window.destroyed.connect(self._zhonggusheng_window_conn)
+
     def open_shangguyun_window(self):
-        print("打開了上古韻母窗口")
+        # 定义清除引用的局部函数
+        def clear_shangguyun_window_ref():
+            """安全清除窗口引用"""
+            print("清除上古韵窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'shangguyun_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.shangguyun_window):
+                        self.shangguyun_window = None
+                except:
+                    self.shangguyun_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'shangguyun_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.shangguyun_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("上古韵窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"上古韵窗口引用异常: {e}")
+                self.shangguyun_window = None
+
+        # 创建新窗口
+        print("打开上古韵窗口")
         self.shangguyun_window = ShangguyunWindow()
+        # 设置关闭时自动销毁
+        self.shangguyun_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.shangguyun_window.show()
 
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_shangguyun_window_conn'):
+            try:
+                self.shangguyun_window.destroyed.disconnect(self._shangguyun_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._shangguyun_window_conn = clear_shangguyun_window_ref
+        self.shangguyun_window.destroyed.connect(self._shangguyun_window_conn)
+
     def open_zhongguyun_window(self):
-        print("打開兩中古韻母窗口")
+       # 定义清除引用的局部函数
+        def clear_zhongguyun_window_ref():
+            """安全清除窗口引用"""
+            print("清除中古韵窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'zhongguyun_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.zhongguyun_window):
+                        self.zhongguyun_window = None
+                except:
+                    self.zhongguyun_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'zhongguyun_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.zhongguyun_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showMaximized()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("中古韵窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"中古韵窗口引用异常: {e}")
+                self.zhongguyun_window = None
+
+        # 创建新窗口
+        print("打开中古韵窗口")
         self.zhongguyun_window = ZhongguyunWindow()
+        # 设置关闭时自动销毁
+        self.zhongguyun_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.zhongguyun_window.show()
 
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_zhongguyun_window_conn'):
+            try:
+                self.zhongguyun_window.destroyed.disconnect(self._zhongguyun_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._zhongguyun_window_conn = clear_zhongguyun_window_ref
+        self.zhongguyun_window.destroyed.connect(self._zhongguyun_window_conn)
+
     def open_shengfu_zhonggusheng_window(self):
-        print("打開了聲符-中古聲窗口")
+      # 定义清除引用的局部函数
+        def clear_shengfu_zhonggusheng_window_ref():
+            """安全清除窗口引用"""
+            print("清除声符-中古声窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'shengfu_zhonggusheng_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.shengfu_zhonggusheng_window):
+                        self.shengfu_zhonggusheng_window = None
+                except:
+                    self.shengfu_zhonggusheng_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'shengfu_zhonggusheng_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.shengfu_zhonggusheng_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showMaximized()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("声符-中古声窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"声符-中古声窗口引用异常: {e}")
+                self.shengfu_zhonggusheng_window = None
+
+        # 创建新窗口
+        print("打开声符-中古声窗口")
         self.shengfu_zhonggusheng_window = Shengfu_zhonggushengWindow()
+        # 设置关闭时自动销毁
+        self.shengfu_zhonggusheng_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.shengfu_zhonggusheng_window.show()
+
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_shengfu_zhonggusheng_window_conn'):
+            try:
+                self.shengfu_zhonggusheng_window.destroyed.disconnect(self._shengfu_zhonggusheng_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._shengfu_zhonggusheng_window_conn = clear_shengfu_zhonggusheng_window_ref
+        self.shengfu_zhonggusheng_window.destroyed.connect(self._shengfu_zhonggusheng_window_conn)
+
+    def open_shengfu_sanbu_window(self):
+      # 定义清除引用的局部函数
+        def clear_shengfu_sanbu_window_ref():
+            """安全清除窗口引用"""
+            print("清除聲符散佈窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'shengfu_sanbu_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.shengfu_sanbu_window):
+                        self.shengfu_sanbu_window = None
+                except:
+                    self.shengfu_sanbu_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'shengfu_sanbu_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.shengfu_sanbu_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showMaximized()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("聲符散佈窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"聲符散佈窗口引用异常: {e}")
+                self.shengfu_sanbu_window = None
+
+        # 创建新窗口
+        print("打开聲符散佈窗口")
+        self.shengfu_sanbu_window = ShengfuSanbuWindow(cache_data=self.shengfu_sanbu_data_cache)
+        # 设置关闭时自动销毁
+        self.shengfu_sanbu_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
+        self.shengfu_sanbu_window.show()
+
+        # 当窗口加载完成后更新缓存
+        self.shengfu_sanbu_window.data_loaded.connect(self.update_cache)
+
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_shengfu_sanbu_window_conn'):
+            try:
+                self.shengfu_sanbu_window.destroyed.disconnect(self._shengfu_sanbu_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._shengfu_sanbu_window_conn = clear_shengfu_sanbu_window_ref
+        self.shengfu_sanbu_window.destroyed.connect(self._shengfu_sanbu_window_conn)
+    def update_cache(self, cache_data):
+        """更新缓存数据"""
+        self.shengfu_sanbu_data_cache = cache_data
+        print("聲符散佈數據已緩存")
+
+    def open_fanqieduizhao_window(self):
+       # 定义清除引用的局部函数
+        def clear_fanqieduizhao_window_ref():
+            """安全清除窗口引用"""
+            print("清除反切對照窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'fanqieduizhao_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.fanqieduizhao_window):
+                        self.fanqieduizhao_window = None
+                except:
+                    self.fanqieduizhao_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'fanqieduizhao_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.fanqieduizhao_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("反切對照窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"反切對照窗口引用异常: {e}")
+                self.fanqieduizhao_window = None
+
+        # 创建新窗口
+        print("打开反切對照窗口")
+        self.fanqieduizhao_window = FanqieCompareWindow()
+        # 设置关闭时自动销毁
+        self.fanqieduizhao_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
+        self.fanqieduizhao_window.show()
+
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_fanqieduizhao_window_conn'):
+            try:
+                self.fanqieduizhao_window.destroyed.disconnect(self._fanqieduizhao_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._fanqieduizhao_window_conn = clear_fanqieduizhao_window_ref
+        self.fanqieduizhao_window.destroyed.connect(self._fanqieduizhao_window_conn)
 
     # 打开更新日志窗口的函数
     def open_update_log_window(self):
+       # 定义清除引用的局部函数
+        def clear_update_log_window_ref():
+            """安全清除窗口引用"""
+            print("清除关于窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'update_log_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.update_log_window):
+                        self.update_log_window = None
+                except:
+                    self.update_log_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'update_log_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.update_log_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("关于窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"关于窗口引用异常: {e}")
+                self.update_log_window = None
+
+        # 创建新窗口
+        print("打开关于窗口")
         self.update_log_window = UpdateLogWindow()
+        # 设置关闭时自动销毁
+        self.update_log_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
         self.update_log_window.show()
+
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_update_log_window_conn'):
+            try:
+                self.update_log_window.destroyed.disconnect(self._update_log_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._update_log_window_conn = clear_update_log_window_ref
+        self.update_log_window.destroyed.connect(self._update_log_window_conn)
 
 
 
 # 聲符-中古聲窗口——————————————————————————————————————————————————————————————————————————————
 from PyQt5.QtCore import pyqtSignal, QObject
 
-#与聲符-中古聲class搭配使用的數據庫相關函數
+# 与聲符-中古聲class搭配使用的數據庫相關函數
 class DatabaseWorker(QObject):
     finished = pyqtSignal(list, list)
     error = pyqtSignal(str)
@@ -1354,7 +1898,7 @@ class DatabaseWorker(QObject):
             # 第一步：查询选中声母的所有声符并统计频率
             sql_shengfu = """
                 SELECT 聲符, COUNT(*) as count
-                FROM ancienttesttable2
+                FROM ancienttable1
                 WHERE 中古聲 = ?
                 GROUP BY 聲符
                 ORDER BY count DESC, 聲符
@@ -1378,7 +1922,7 @@ class DatabaseWorker(QObject):
 
             sql_zi = f"""
                 SELECT 聲符, 中古聲, GROUP_CONCAT(字頭, ' ') as zi_list
-                FROM ancienttesttable2
+                FROM ancienttable1
                 WHERE 聲符 IN ({placeholders})
                   AND 中古聲 IN ({zgs_placeholders})
                 GROUP BY 聲符, 中古聲
@@ -1409,12 +1953,10 @@ class DatabaseWorker(QObject):
         finally:
             if connection:
                 connection.close()
-
-
 class Shengfu_zhonggushengWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("賢哉古音 - 聲符分佈与中古聲母")
+        self.setWindowTitle("賢哉古音 - 聲符和中古聲母的關係")
         self.setGeometry(0, 0, 1900, 1300)
         self.setMinimumSize(1400, 1100)
         # 初始最大化窗口
@@ -1475,7 +2017,7 @@ class Shengfu_zhonggushengWindow(QWidget):
         # 将垂直布局添加到水平布局
         zgsSelect_layout.addLayout(label_combo_layout2)
 
-        self.label4 = QLabel("功能說明：選擇中古音聲母，表格將顯示該聲母對應的聲符分佈情況")
+        self.label4 = QLabel("功能說明：選擇中古聲母，查看該聲母對應的聲符分佈詳情")
         self.label4.setFont(QFont("康熙字典體", 17))
         self.label4.setAlignment(Qt.AlignCenter)
         self.label4.setStyleSheet("border: 1px solid brown; padding: 10px; color:#DC6500")
@@ -1514,7 +2056,6 @@ class Shengfu_zhonggushengWindow(QWidget):
         self.table_widget.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table_widget.setSelectionMode(QAbstractItemView.NoSelection)
-
 
         # 添加表格到主布局
         layout.addWidget(self.table_widget)
@@ -1659,6 +2200,353 @@ class Shengfu_zhonggushengWindow(QWidget):
         self.label4.setText(
             f"已顯示: 【中古{self.zhonggushengchar_selectForSF}母】的聲符分佈 | 共 {len(shengfu_list)} 個聲符")
         self.label4.setStyleSheet("border: 1px solid brown; padding: 10px; color: #004AA2")
+
+
+# 聲符散佈数据窗口———————————————————————————————————————————————————————
+class ShengfuSanbuWindow(QWidget):
+    # 添加数据加载完成信号
+    data_loaded = pyqtSignal(object)
+    def __init__(self, cache_data=None):
+        super().__init__()
+        self.setWindowTitle("賢哉古音 - 《廣韻》聲符散佈表")
+        self.setMinimumSize(1400, 1100)
+        # 初始最大化窗口
+        self.setWindowState(Qt.WindowMaximized)
+        # 调用函数设置窗口图标
+        set_window_icon(self, 'icon.ico')
+
+        # 创建主布局
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # 创建状态标签
+        self.status_label = QLabel("正加載: 《廣韻》聲符的散佈…… 數據量大，可能卡頓，請勿重複點按！")
+        self.status_label.setFont(QFont("康熙字典體", 16))
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: red; padding: 10px;")
+        layout.addWidget(self.status_label)
+
+        # 添加提示標籤
+        sanbu_tip_label = QLabel("————數據源：Poem《廣韻字表》————")
+        sanbu_tip_label.setFont(QFont("Ipap", 13))
+        sanbu_tip_label.setStyleSheet("color: gray;")
+        sanbu_tip_label.setAlignment(Qt.AlignCenter)  # 水平居中
+        layout.addWidget(sanbu_tip_label)
+
+        # 创建表格控件
+        self.table_widget = QTableWidget()
+        self.table_widget.verticalHeader().setVisible(False)
+        self.table_widget.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #E6B0AA;
+                background-color: #F3F3F3;
+                alternate-background-color: #F9F9F9;
+            }
+            QHeaderView::section {
+                background-color: #FEF9F6;
+                border: 2px solid #E6B0AA;
+                font-weight: bold;
+                font-family: "IpaP";
+                font-size: 16pt;
+                padding: 2px;
+            }
+            QTableWidget::item {
+                border: 1px solid #E6B0AA;
+                padding: 2px;
+                font-family: "IpaP";
+                font-size: 16pt;
+            }
+        """)
+        self.table_widget.setAlternatingRowColors(True)
+        self.table_widget.setWordWrap(True)
+        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_widget.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_widget.setSelectionMode(QAbstractItemView.NoSelection)
+
+        # 添加表格到布局
+        layout.addWidget(self.table_widget)
+
+        #双击单元格的事件
+        self.table_widget.cellDoubleClicked.connect(self.handle_cell_click)
+
+        # 保存缓存数据引用
+        self.cache_data = cache_data
+
+        # 如果已有缓存数据，立即加载
+        if cache_data:
+            QTimer.singleShot(50, self.load_from_cache)
+        else:
+            # 否则从数据库加载
+            QTimer.singleShot(50, self.load_table_data)
+
+    def load_from_cache(self):
+        """从缓存加载数据"""
+        if not self.cache_data:
+            return
+
+        try:
+            shengmu_list = self.cache_data['shengmu_list']
+            shengfu_list = self.cache_data['shengfu_list']
+            total_counts = self.cache_data['total_counts']
+            all_count_dicts = self.cache_data['all_count_dicts']
+
+            # 设置表格
+            self.setup_table(shengmu_list, shengfu_list, total_counts, all_count_dicts)
+
+            # 更新状态
+            self.status_label.setText(f"已顯示 {len(shengfu_list)} 個聲符的分佈數據 (從緩存)")
+            self.status_label.setStyleSheet("color: #004AA2; padding: 10px;")
+
+        except Exception as e:
+            self.status_label.setText(f"緩存加載出錯: {str(e)}")
+            # 回退到数据库加载
+            QTimer.singleShot(0, self.load_table_data)
+
+    def load_table_data(self):
+        """加载表格数据"""
+        try:
+            # 连接数据库
+            connection = create_db_connection()
+            cursor = connection.cursor()
+
+            # 使用固定的广韵声母列表（按照您提供的顺序）
+            shengmu_list = ["幫", "滂", "並", "明", "端", "透", "定", "知", "徹", "澄",
+                            "精", "清", "從", "心", "邪", "莊", "初", "崇", "生", "俟",
+                            "章", "昌", "常", "書", "船", "見", "溪", "羣", "疑", "匣",
+                            "曉", "影", "云", "日", "泥", "娘", "來", "以"]
+
+            # 查询所有广韵声符及其出现频次
+            cursor.execute("SELECT 廣韻聲符, COUNT(*) as cnt FROM guangyun GROUP BY 廣韻聲符 ORDER BY cnt DESC")
+            shengfu_results = cursor.fetchall()
+
+            # 创建声符列表和总次数字典
+            shengfu_list = []
+            total_counts = {}  # 存储每个声符的总次数
+            for row in shengfu_results:
+                shengfu_list.append(row[0])
+                total_counts[row[0]] = row[1]  # 保存总次数
+
+            # 如果没有数据，显示提示
+            if not shengmu_list or not shengfu_list:
+                self.status_label.setText("未找到《廣韻》聲符數據")
+                return
+
+            # 设置表格行列数
+            self.table_widget.setRowCount(len(shengfu_list))
+            self.table_widget.setColumnCount(len(shengmu_list) + 2)  # +1 为声符列
+
+            #设置表头
+            headers = ["聲符", "頻次"] + shengmu_list
+            self.table_widget.setHorizontalHeaderLabels(headers)
+
+            # 固定前两列的宽度
+            header = self.table_widget.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.Fixed)  # 固定声符列宽度
+            header.setSectionResizeMode(1, QHeaderView.Fixed)  # 固定频次列宽度
+            self.table_widget.setColumnWidth(0, 80)  # 声符列宽度
+            self.table_widget.setColumnWidth(1, 80)  # 频次列宽度
+            # 其余列保持自适应
+            for col in range(2, self.table_widget.columnCount()):
+                header.setSectionResizeMode(col, QHeaderView.Stretch)
+
+            # 填充表格数据
+            for row_idx, shengfu in enumerate(shengfu_list):
+                # 第一列：声符
+                item_shengfu = QTableWidgetItem(shengfu)
+                item_shengfu.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(row_idx, 0, item_shengfu)
+
+                # 设置字体：宋体、粗体、18pt
+                font = QFont("宋体")
+                font.setBold(True)
+                font.setPointSize(16)
+                item_shengfu.setFont(font)
+                self.table_widget.setItem(row_idx, 0, item_shengfu)
+
+                # 第二列：声符总频次
+                total_count = total_counts.get(shengfu, 0)
+                item_count = QTableWidgetItem(str(total_count))
+                item_count.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(row_idx, 1, item_count)
+
+                # 查询该声符在不同声母下的字头数量
+                cursor.execute("""
+                    SELECT 廣韻聲母, COUNT(*) as cnt 
+                    FROM guangyun 
+                    WHERE 廣韻聲符 = ? 
+                    GROUP BY 廣韻聲母
+                """, (shengfu,))
+                counts = cursor.fetchall()
+                count_dict = {row[0]: row[1] for row in counts}
+
+                # 填充各列数据
+                for col_idx, shengmu in enumerate(shengmu_list, start=2):
+                    cnt = count_dict.get(shengmu, 0)
+                    if cnt > 0:
+                        item = QTableWidgetItem(str(cnt))
+                        item.setTextAlignment(Qt.AlignCenter)
+                        self.table_widget.setItem(row_idx, col_idx, item)
+
+            # 保存完整数据用于缓存
+            all_count_dicts = {}
+            for shengfu in shengfu_list:
+                cursor.execute("""
+                    SELECT 廣韻聲母, COUNT(*) as cnt 
+                    FROM guangyun 
+                    WHERE 廣韻聲符 = ? 
+                    GROUP BY 廣韻聲母
+                """, (shengfu,))
+                counts = cursor.fetchall()
+                all_count_dicts[shengfu] = {row[0]: row[1] for row in counts}
+            # 设置表格
+            self.setup_table(shengmu_list, shengfu_list, total_counts, all_count_dicts)
+
+            # 更新状态
+            self.status_label.setText(f"已顯示 {len(shengfu_list)} 個聲符的分佈數據")
+            self.status_label.setStyleSheet("color: #004AA2; padding: 10px;")
+
+            # 发送缓存数据
+            cache_data = {
+                'shengmu_list': shengmu_list,
+                'shengfu_list': shengfu_list,
+                'total_counts': total_counts,
+                'all_count_dicts': all_count_dicts
+            }
+            self.data_loaded.emit(cache_data)
+
+        except Exception as e:
+            self.status_label.setText(f"加載數據出錯: {str(e)}")
+            QMessageBox.critical(self, "錯誤", f"數據庫查詢出錯: {str(e)}")
+        finally:
+            if connection:
+                connection.close()
+
+    def setup_table(self, shengmu_list, shengfu_list, total_counts, all_count_dicts):
+        """通用表格设置方法"""
+        # 设置表格行列数
+        self.table_widget.setRowCount(len(shengfu_list))
+        self.table_widget.setColumnCount(len(shengmu_list) + 2)
+
+        # 设置表头
+        headers = ["聲符", "頻次"] + shengmu_list
+        self.table_widget.setHorizontalHeaderLabels(headers)
+
+        # 设置列宽
+        header = self.table_widget.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table_widget.setColumnWidth(0, 80)
+        self.table_widget.setColumnWidth(1, 80)
+        for col in range(2, self.table_widget.columnCount()):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
+
+        # 填充数据
+        for row_idx, shengfu in enumerate(shengfu_list):
+            # 声符列
+            item_shengfu = QTableWidgetItem(shengfu)
+            item_shengfu.setTextAlignment(Qt.AlignCenter)
+            font = QFont("宋体")
+            font.setBold(True)
+            font.setPointSize(16)
+            item_shengfu.setFont(font)
+            self.table_widget.setItem(row_idx, 0, item_shengfu)
+
+            # 频次列
+            total_count = total_counts.get(shengfu, 0)
+            item_count = QTableWidgetItem(str(total_count))
+            item_count.setTextAlignment(Qt.AlignCenter)
+            self.table_widget.setItem(row_idx, 1, item_count)
+
+            # 各声母数量
+            count_dict = all_count_dicts.get(shengfu, {})
+            for col_idx, shengmu in enumerate(shengmu_list, start=2):
+                cnt = count_dict.get(shengmu, 0)
+                if cnt > 0:
+                    item = QTableWidgetItem(str(cnt))
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.table_widget.setItem(row_idx, col_idx, item)
+
+    def handle_cell_click(self, row, col):
+        """处理单元格点击事件"""
+        # 忽略表头行和声符列（第一列）
+        if col == 0 or col == 1 or not self.table_widget.item(row, col):
+            return
+
+        # 获取声符和声母
+        shengfu = self.table_widget.item(row, 0).text()
+        shengmu = self.table_widget.horizontalHeaderItem(col).text()
+
+        # 获取当前单元格值（字头数量）
+        cell_value = int(self.table_widget.item(row, col).text())
+
+        # 查询数据库获取字头详情
+        try:
+            connection = create_db_connection()
+            cursor = connection.cursor()
+            cursor.execute("""
+                SELECT 廣韻字頭 
+                FROM guangyun 
+                WHERE 廣韻聲符 = ? AND 廣韻聲母 = ?
+            """, (shengfu, shengmu))
+            results = cursor.fetchall()
+            zitou_list = [row[0] for row in results]
+
+            # 验证数量是否匹配
+            if len(zitou_list) != cell_value:
+                QMessageBox.warning(self, "數據不一致",
+                                    f"數據庫查詢到{len(zitou_list)}個字頭，但表格顯示{cell_value}個")
+
+            # 显示详情对话框
+            self.show_zitou_detail(shengfu, shengmu, cell_value, zitou_list)
+
+        except Exception as e:
+            QMessageBox.critical(self, "查詢錯誤", f"數據庫查詢失敗: {str(e)}")
+        finally:
+            if connection:
+                connection.close()
+
+    def show_zitou_detail(self, shengfu, shengmu, count, zitou_list):
+        """显示字头详情对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"聲符「{shengfu}」- 聲母「{shengmu}」")
+        dialog.setMinimumSize(600, 400)
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowMaximizeButtonHint)
+
+        layout = QVBoxLayout()
+
+        # 标题标签
+        title_label = QLabel(f"聲符為「{shengfu}」的「{shengmu}」母字共 {count} 個:")
+        title_label.setFont(QFont("宋体", 16))
+        title_label.setStyleSheet("color: #8B0000; padding: 10px;")
+        layout.addWidget(title_label)
+
+        # 文本显示区域
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setFont(QFont("宋体", 16))
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #FEF9F6;
+                border: 2px solid #E6B0AA;
+                padding: 10px;
+            }
+        """)
+
+        # 按每行10个字格式化显示
+        formatted_text = ""
+        for i, zitou in enumerate(zitou_list):
+            formatted_text += zitou + " "
+            if (i + 1) % 10 == 0:
+                formatted_text += "\n"
+
+        text_edit.setText(formatted_text.strip())
+        layout.addWidget(text_edit)
+
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
 
 # 查中古韻母窗口——————————————————————————————————————————————————————————————————————————————
 class ZhongguyunWindow(QWidget):
@@ -1897,7 +2785,7 @@ class ZhongguyunWindow(QWidget):
             # 查詢符合條件的數據
             sql = """
                         SELECT 字頭, 上古聲, 中古聲, 上古韻, 中古調, 中古等, 開合
-                        FROM ancienttesttable2
+                        FROM ancienttable1
                         WHERE 中古韻 = ? AND 上古韻 = ?
                     """
             cursor.execute(sql, (self.zhongguyunchar_select, selected_shangguyun))
@@ -2033,7 +2921,7 @@ class ZhongguyunWindow(QWidget):
 
             sql = """
                             SELECT 字頭, 上古聲, 中古聲, 上古韻, 中古調, 中古等, 開合
-                            FROM ancienttesttable2
+                            FROM ancienttable1
                             WHERE 中古韻 = ?
                         """
             cursor.execute(sql, (self.zhongguyunchar_select,))
@@ -2049,7 +2937,6 @@ class ZhongguyunWindow(QWidget):
             unique_shangguyun = set(row['上古韻'] for row in result)
             unique_shangguyun_count = len(unique_shangguyun)
             print('上古韻有：' + str(unique_shangguyun))
-
 
             # 获取所有不同的上古声
             unique_shanggusheng = set(row['上古聲'] for row in result)
@@ -2097,13 +2984,12 @@ class ZhongguyunWindow(QWidget):
             # 获取并处理上古声母数据（去重不排序）
             unique_shanggusheng = list({row['上古聲'] for row in result})
             shangsheng_str = '  '.join([f'[{s}]' for s in unique_shanggusheng])
-            #shangsheng_str = '  '.join([f'[{s}]' for s in unique_shanggusheng]) if unique_shanggusheng else '【未選擇】'
             html_content = f"<b>上古音聲母來源：</b><br>{shangsheng_str}" if unique_shanggusheng else ('【功能說明】：'
                                                                                                       '用韻圖分類顯示中古韻部的轄字。'
-                                                                                                      '查詢後可根據上古韻部的來源篩選，'
-                                                                                                      '轄字后為該字上古聲母，'
-                                                                                                      '選中轄字可右鍵複製或查看備註。')
-            #html_content = f"<b>上古音聲母來源：</b><br>{shangsheng_str}"
+                                                                                                      '查詢後可據上古韻部的來源篩選，'
+                                                                                                      '轄字後為該字上古聲母，'
+                                                                                                      '選定轄字可右鍵複製或查看備註。')
+            # html_content = f"<b>上古音聲母來源：</b><br>{shangsheng_str}"
 
             self.update_label_signal.emit(html_content)  # 使用信号传递数据
 
@@ -2387,7 +3273,6 @@ class ZhongguyunWindow(QWidget):
         self.header_widget.setFixedWidth(self.content_widget.width() + scrollbar_width)
         super().resizeEvent(event)
 
-
     def save_table_image(self):
         """支持用户选择存储路径的方案"""
         from PyQt5.QtGui import QPainter, QImage
@@ -2504,7 +3389,6 @@ class ZhongguyunWindow(QWidget):
                 1700
             )
 
-
     def _handle_remark_query(self):
         """处理需要清理格式的備註查询"""
         # 汉字正则表达式（包含所有Unicode汉字区块）
@@ -2551,7 +3435,7 @@ class ZhongguyunWindow(QWidget):
             # 1. 先查询字头出现次数判断是否多音字
             cursor.execute("""
                 SELECT COUNT(*) 
-                FROM ancienttesttable2
+                FROM ancienttable1
                 WHERE 字頭 = ? 
                 LIMIT 1
             """, (self.selected_text,))
@@ -2562,7 +3446,7 @@ class ZhongguyunWindow(QWidget):
             # 2. 查询备注内容
             cursor.execute("""
                             SELECT 備註 
-                            FROM ancienttesttable2
+                            FROM ancienttable1
                             WHERE 字頭 = ? 
                             LIMIT 1
                         """, (self.selected_text,))
@@ -2635,7 +3519,6 @@ class ZhongguyunWindow(QWidget):
         btn_box = QDialogButtonBox()
         btn_box.setStyleSheet('font-size: 14pt')
         copy_btn = btn_box.addButton("複製備註內容", QDialogButtonBox.ActionRole)
-
 
         copy_btn.clicked.connect(lambda: self._copy_remark(text_edit.toPlainText()))
 
@@ -2776,7 +3659,7 @@ class ShangguyunWindow(QWidget):
             # 查询
             sql = """
                     SELECT 字頭, 中古韻
-                    FROM ancienttesttable2
+                    FROM ancienttable1
                     WHERE 上古韻 = ?
                 """
             cursor.execute(sql, (shangguyunchar,))
@@ -2978,7 +3861,7 @@ class ZhonggushengWindow(QWidget):
             # 查询
             sql = """
                     SELECT 字頭, 上古聲
-                    FROM ancienttesttable2
+                    FROM ancienttable1
                     WHERE 中古聲 = ?
                 """
             cursor.execute(sql, (zhonggushengchar,))
@@ -3184,7 +4067,7 @@ class ShanggushengWindow(QWidget):
             # 查询所有该声母的字及对应的上古声
             sql = """
                 SELECT DISTINCT 字頭, 中古聲
-                FROM ancienttesttable2 
+                FROM ancienttable1 
                 WHERE 上古聲 = ?
             """
             cursor.execute(sql, (shanggushengipa,))
@@ -3270,18 +4153,41 @@ class SearchCharaWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("賢哉古音 - 查字")
-        self.setGeometry(200, 200, 1500, 800)
+        self.setGeometry(110, 200, 1550, 820)
         self.setFixedWidth(1500)
         self.setMinimumHeight(800)
         # 调用函数设置窗口图标
         set_window_icon(self, 'icon.ico')
 
+        self.current_table = "ancienttable1"  # 新增：当前选择的表
         self.initUI()
 
     def initUI(self):
         # 創建主布局
         layout = QVBoxLayout()
         self.setLayout(layout)
+        # ========== 新增：左上角下拉选择框 ==========
+        top_layout = QHBoxLayout()
+        layout.insertLayout(0, top_layout)  # 插入到最顶部
+
+        # 标签
+        table_label = QLabel("選擇字表:")
+        table_label.setFont(QFont("康熙字典體", 16))
+        table_label.setStyleSheet("color: #662A1D; margin-right: 10px;")
+        top_layout.addWidget(table_label)
+
+        # 下拉选择框
+        self.table_combo = QComboBox()
+        self.table_combo.addItem("古音表 (默認)")
+        self.table_combo.addItem("廣韻字表")
+        self.table_combo.setFont(QFont("康熙字典體", 15))
+        self.table_combo.setCursor(Qt.PointingHandCursor)
+        self.table_combo.setFixedHeight(50)
+
+        self.table_combo.currentIndexChanged.connect(self.change_table)
+        top_layout.addWidget(self.table_combo)
+        top_layout.addStretch(1)  # 右侧伸缩空间
+        # ========================================
 
         # 創建輸入框和標籤的布局
         input_layout = QHBoxLayout()
@@ -3330,7 +4236,7 @@ class SearchCharaWindow(QWidget):
         input_layout.addStretch(1)
 
         # 添加提示標籤
-        tip_label = QLabel("*提示：僅支持繁體、單個漢字輸入")
+        tip_label = QLabel("*提示：僅支持繁體、單個漢字輸入\n————古音表數據：王弘治老師————廣韻字表數據：Poem————")
         tip_label.setFont(QFont("Ipap", 13))
         tip_label.setStyleSheet("color: gray;")
         tip_label.setAlignment(Qt.AlignCenter)  # 水平居中
@@ -3349,6 +4255,16 @@ class SearchCharaWindow(QWidget):
         self.table_layout = QGridLayout(table_container)
         self.table_layout.setSpacing(2)  # 设置布局的间距为 2
         scroll_area.setWidget(table_container)
+
+    # 新增：切换查询表
+    def change_table(self, index):
+        if index == 0:
+            self.current_table = "ancienttable1"
+        else:
+            self.current_table = "guangyun"
+
+        # 切换表时清空输入框和表格内容
+        self.clear_all()  # 新增：调用clear_all方法清空内容
 
     # 清空输入框和表格内容
     def clear_all(self):
@@ -3378,9 +4294,16 @@ class SearchCharaWindow(QWidget):
         if connection:
             try:
                 cursor = connection.cursor()
-                sql = "SELECT * FROM ancienttesttable2 WHERE 字頭=?"
+
+                # 根据选择的表构建不同的查询
+                if self.current_table == "ancienttable1":
+                    sql = "SELECT * FROM ancienttable1 WHERE 字頭=?"
+                else:  # 广韵字表
+                    sql = "SELECT * FROM guangyun WHERE 廣韻字頭=?"
+
                 cursor.execute(sql, (chara,))
                 result = cursor.fetchall()
+
                 if result:
                     # 将Row对象转换为可读格式
                     readable_result = [dict(row) for row in result]
@@ -3401,10 +4324,17 @@ class SearchCharaWindow(QWidget):
         # 清空表格布局中的内容
         self.clear_all()
 
-        # 自定义的表头字符
-        custom_headers = ["數據id", "字 頭", "上古聲母", "上古韻部", "中古聲母", "中古韻部", "聲調", "等", "開合","聲符","備註"]
-        # 数据库列名，用于从查询结果中获取数据
-        headers = result[0].keys()  # 这里仍然保留数据库中的列名
+        # 根据当前表设置表头
+        if self.current_table == "ancienttable1":
+            custom_headers = ["數據\nid", "字 頭", "上古\n聲母", "上古\n韻部", "中古\n聲母",
+                              "中古\n韻部", "聲調", "等", "開合", "聲符", "備註"]
+            headers = result[0].keys()
+        else:  # 广韵字表
+            custom_headers = ["字\n序", "字\n頭", "切韻\n擬音", "廣韻\n聲符", "上\n字", "下\n字",
+                              "聲\n母", "韻\n部", "開\n合", "等", "調",
+                              "頁\n序", "廣韻\n釋義"]
+            headers = result[0].keys()
+
         self.table_layout.setSpacing(2)  # 设置布局的间距为 2，若為0則是去除单元格之间的间隙
 
         # 创建表头
@@ -3426,6 +4356,329 @@ class SearchCharaWindow(QWidget):
             header_label.setAlignment(Qt.AlignCenter)
             self.table_layout.addWidget(header_label, 0, col)
 
+        # 列差异检测（广韵表跳过最后一列）
+        column_differences = [False] * len(headers)
+        if len(result) > 1:
+            skip_last_col = self.current_table == "guangyun"
+
+            for col_num in range(len(headers)):
+                # 只跳过最后一列（如果设置），不跳过第0列
+                if col_num == 0 or (skip_last_col and col_num == len(headers) - 1):
+                    continue  # 跳过最后一列（廣韻釋義）
+
+                first_value = str(result[0][headers[col_num]])
+                for row_num in range(1, len(result)):
+                    if str(result[row_num][headers[col_num]]) != first_value:
+                        column_differences[col_num] = True
+                        break
+
+        # 创建表格内容
+        for row_num, row_data in enumerate(result):
+            # 记录当前行的最大高度
+            row_max_height = 0
+            for col_num, key in enumerate(headers):
+                # 广韵表最后一列特殊处理
+                if self.current_table == "guangyun" and col_num == len(headers) - 1:
+                    # 创建容器widget作为单元格背景
+                    cell_widget = QWidget()
+
+                    # 获取表格总行数和总列数
+                    total_rows = len(result)
+                    total_cols = len(headers)
+
+                    # 设置单元格基础样式
+                    cell_style = "border: 1px solid #8A1A00; background-color: #FFF9F9; padding: 10px;"
+
+                    # 圆角处理
+                    if row_num == total_rows - 1 and col_num == total_cols - 1:
+                        cell_style += "border-bottom-right-radius: 15px;"
+
+                    cell_widget.setStyleSheet(cell_style)
+
+                    # 创建水平布局
+                    cell_layout = QHBoxLayout(cell_widget)
+                    cell_layout.setContentsMargins(0, 0, 0, 0)
+                    cell_layout.setAlignment(Qt.AlignCenter)
+
+                    # 创建透明按钮
+                    btn = QPushButton("點此\n查看")
+                    btn.setFont(QFont("康熙字典體", 14))
+                    btn.setStyleSheet("""
+                                            QPushButton {
+                                                background-color: transparent;
+                                                border: none;
+                                                color: #1a0dab;
+                                                text-decoration: underline;
+                                                padding: 0;
+                                                margin: 0;
+                                            }
+                                            QPushButton:hover {
+                                                color: #681da8;
+                                            }
+                                        """)
+                    btn.setCursor(Qt.PointingHandCursor)
+
+                    # 存储释义数据
+                    meaning = str(row_data[key])
+                    btn.clicked.connect(lambda _, m=meaning: self.show_meaning(m))
+
+                    # 将按钮添加到布局
+                    cell_layout.addWidget(btn)
+
+                    # 添加单元格到表格布局
+                    self.table_layout.addWidget(cell_widget, row_num + 1, col_num)
+
+                else:
+                    # 正常文本标签
+                    value_label = QLabel(str(row_data[key]))
+                    value_label.setWordWrap(True)  # 允许自动换行
+                    # 优化后的字体设置
+                    if self.current_table == "ancienttable1" and col_num == 2:  # 古音表 上古聲用IpaP字體
+                        value_label.setFont(QFont("IpaP", 20))
+                    elif self.current_table == "guangyun" and col_num == 2:  # 廣韻表 構擬用IpaP
+                        value_label.setFont(QFont("IpaP", 20))
+                    elif self.current_table == "guangyun" and col_num == 11 or col_num == 0:  # 廣韻表 序號和頁序的字小一點
+                        value_label.setFont(QFont("宋体", 16))
+                    elif self.current_table == "ancienttable1" and col_num == 0:  # 古音表 序號的字小一點
+                        value_label.setFont(QFont("宋体", 16))
+                    else:
+                        value_label.setFont(QFont("宋体", 20))
+
+                    # 获取表格总行数和总列数
+                    total_rows = len(result)
+                    total_cols = len(headers)
+                    # 设置基础样式
+                    base_style = "border: 1px solid #8A1A00; background-color: #FFF9F9; padding: 10px; color: #3C0D00;"
+                    # 只在最后一行添加角落圆角
+                    if row_num == total_rows - 1:
+                        if col_num == 0:  # 左下角单元格
+                            base_style += "border-bottom-left-radius: 15px;"
+                        elif col_num == total_cols - 1:  # 右下角单元格
+                            base_style += "border-bottom-right-radius: 15px;"
+                    # 如果该列的值不同，设置不同样式
+                    if column_differences[col_num]:
+                        base_style = "border: 1px solid #CF3801; background-color: #FFECD4; padding: 10px; color: #D53A00;"
+                        # 重新添加圓角樣式（如果需要）
+                        if row_num == total_rows - 1:
+                            if col_num == 0:  # 左下角单元格
+                                base_style += "border-bottom-left-radius: 10px;"
+                            elif col_num == total_cols - 1:  # 右下角单元格
+                                base_style += "border-bottom-right-radius: 10px;"
+                    value_label.setStyleSheet(base_style)
+                    value_label.setAlignment(Qt.AlignCenter)
+                    value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)  # 允许鼠标选择文本
+                    self.table_layout.addWidget(value_label, row_num + 1, col_num)
+
+    # 新增：显示广韵释义
+    def show_meaning(self, meaning):
+        meaning_dialog = QDialog(self)
+        meaning_dialog.setWindowTitle("賢哉古音 - 查字：廣韻釋義")
+        # 移除帮助按钮
+        meaning_dialog.setWindowFlags(
+            meaning_dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint
+        )
+        meaning_dialog.setFixedSize(600, 400)
+
+        layout = QVBoxLayout(meaning_dialog)
+        layout.setContentsMargins(20, 20, 20, 20)  # 设置布局边距
+        # 使用QTextEdit替代QLabel实现可复制文本
+        text_edit = QTextEdit()
+        text_edit.setPlainText(meaning)  # 设置纯文本内容
+        text_edit.setFont(QFont("宋体", 15))
+        text_edit.setReadOnly(True)  # 设为只读模式
+        text_edit.setFrameShape(QFrame.NoFrame)  # 移除边框
+        text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # 按需显示滚动条
+
+        # 设置文本对齐方式（顶部左对齐）
+        text_edit.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+        # 添加到主布局
+        layout.addWidget(text_edit)
+
+        def copy_to_clipboard(text):
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
+            QMessageBox.information(self, "複製成功", "釋義已複製！", QMessageBox.Ok)
+
+        # === 新增按钮代码开始 ===
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1)
+
+        copy_button = QPushButton("複製廣韻釋義")
+        copy_button.setFont(QFont("康熙字典體", 12))
+        copy_button.setStyleSheet("color: #8B1A1A;")
+        copy_button.setCursor(Qt.PointingHandCursor)
+        copy_button.setFixedHeight(50)
+        copy_button.clicked.connect(lambda: copy_to_clipboard(meaning))
+
+        button_layout.addWidget(copy_button)
+        layout.addLayout(button_layout)
+        # === 新增按钮代码结束 ===
+
+        meaning_dialog.exec_()
+
+
+# 反切對照窗口———————————————————————————————————————————————————————
+class FanqieCompareWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("賢哉古音 - 反切對照")
+        self.setGeometry(200, 200, 1500, 800)
+        self.setFixedWidth(1500)
+        self.setMinimumHeight(800)
+        # 调用函数设置窗口图标
+        set_window_icon(self, 'icon.ico')
+        self.initUI()
+
+    def initUI(self):
+        # 創建主布局
+        FQlayout = QVBoxLayout()
+        self.setLayout(FQlayout)
+
+        # 創建輸入框和標籤的布局
+        FQinput_layout = QHBoxLayout()
+        FQlayout.addLayout(FQinput_layout)
+
+        # 在左側添加伸縮空間
+        FQinput_layout.addStretch(1)
+
+        # 標籤
+        QIElabel = QLabel("輸入被切字:    ")
+        QIElabel.setFont(QFont("康熙字典體", 24))
+        QIElabel.setAlignment(Qt.AlignCenter)  # 將標籤居中
+        QIElabel.setStyleSheet("color: #662A1D;")  # 設置標籤文字顏色
+        QIElabel.setContentsMargins(0, 40, 0, 40)  # 設置上下邊距
+        FQinput_layout.addWidget(QIElabel)
+
+        # 輸入框
+        self.FQ_entry = QLineEdit()
+        self.FQ_entry.setFont(QFont("宋体", 23, QFont.Bold))  # 設置字體為"宋体"，字號為23
+        self.FQ_entry.setFixedHeight(60)  # 固定輸入框的高度為60px
+        self.FQ_entry.setFixedWidth(300)  # 固定輸入框的寬度為300px
+        self.FQ_entry.setAlignment(Qt.AlignCenter)  # 將輸入框中的文本居中
+        FQinput_layout.addWidget(self.FQ_entry)
+
+        # 創建查詢按鈕 - 直接添加到input_layout
+        FQ_button = QPushButton("一鍵切它！")
+        FQ_button.setFont(QFont("康熙字典體", 16))
+        FQ_button.setFixedWidth(190)  # 縮小按鈕寬度以適應水平排列
+        FQ_button.setFixedHeight(60)  # 設置按鈕高度與輸入框一致
+        FQ_button.setStyleSheet(f"color: #B03A2E; padding: 5px;")
+        FQ_button.clicked.connect(self.FQcheck_input)
+        FQ_button.setCursor(Qt.PointingHandCursor)  # 鼠標懸停時顯示手形光標
+        FQinput_layout.addWidget(FQ_button)
+
+        # 清空按鈕 - 直接添加到input_layout
+        FQclear_button = QPushButton("重置")
+        FQclear_button.setFont(QFont("康熙字典體", 16))
+        FQclear_button.setFixedWidth(150)  # 縮小按鈕寬度以適應水平排列
+        FQclear_button.setFixedHeight(60)  # 設置按鈕高度與輸入框一致
+        FQclear_button.setStyleSheet(f"color: #784212; padding: 5px;")
+        FQclear_button.clicked.connect(self.FQclear_all)
+        FQclear_button.setCursor(Qt.PointingHandCursor)  # 鼠標懸停時顯示手形光標
+        FQinput_layout.addWidget(FQclear_button)
+
+        # 在右側添加伸縮空間
+        FQinput_layout.addStretch(1)
+
+        # 添加提示標籤
+        FQtip_label = QLabel("*提示：僅支持繁體、單個漢字輸入\n————反切對照表數據：Poem————")
+        FQtip_label.setFont(QFont("Ipap", 13))
+        FQtip_label.setStyleSheet("color: gray;")
+        FQtip_label.setAlignment(Qt.AlignCenter)  # 水平居中
+        FQlayout.addWidget(FQtip_label)
+
+        # 連接回車事件
+        self.FQ_entry.returnPressed.connect(self.FQcheck_input)
+
+        # 创建一个滚动区域用于包含表格
+        FQscroll_area = QScrollArea()
+        FQscroll_area.setWidgetResizable(True)
+        FQlayout.addWidget(FQscroll_area)
+
+        # 创建一个用于包含表格的子控件
+        FQtable_container = QWidget()
+        self.FQtable_layout = QGridLayout(FQtable_container)
+        self.FQtable_layout.setSpacing(2)  # 设置布局的间距为 2
+        FQscroll_area.setWidget(FQtable_container)
+
+    # 清空输入框和表格内容
+    def FQclear_all(self):
+        self.FQ_entry.clear()
+        for i in reversed(range(self.FQtable_layout.count())):
+            widget = self.FQtable_layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+    def closeEvent(self, event):
+        """在窗口关闭时清空内容"""
+        self.FQclear_all()  # 先调用 clear_all 清空输入框和表格内容
+        event.accept()  # 允许窗口关闭
+
+    # 检查输入并查询数据库
+    def FQcheck_input(self):
+        FQchara = self.FQ_entry.text()
+        if re.fullmatch(r'^.$', FQchara):  # 正则匹配单个汉字
+            print("合法输入")
+            self.FQquery_database(FQchara)
+        else:
+            QMessageBox.warning(self, "警告", "僅允許輸入單個漢字！")
+
+    # 查询数据库
+    def FQquery_database(self, FQchara):
+        connection = create_db_connection()
+        if connection:
+            try:
+                cursor = connection.cursor()
+                sql = "SELECT * FROM fanqieduizhao WHERE 被切字=?"
+                cursor.execute(sql, (FQchara,))
+                result = cursor.fetchall()
+                if result:
+                    # 将Row对象转换为可读格式
+                    readable_result = [dict(row) for row in result]
+                    print("查询结果:", readable_result)
+                    self.FQdisplay_results(result)
+                else:
+                    QMessageBox.information(self, "無結果", "未查到相關字")
+            except sqlite3.Error as e:
+                print(f"数据库查询失败: {e}")
+                QMessageBox.warning(self, "警告", "数据库查询失败")
+            finally:
+                connection.close()
+        else:
+            QMessageBox.warning(self, "警告", "数据库连接失败")
+
+    # 显示查询结果
+    def FQdisplay_results(self, result):
+        # 清空表格布局中的内容
+        self.FQclear_all()
+
+        # 自定义的表头字符
+        FQcustom_headers = ["字\n序", "被\n切\n字", "音標", "經典釋文\n反切", "原本玉篇\n反切", "宋本玉篇\n反切",
+                            "廣韻\n反切"]
+        # 数据库列名，用于从查询结果中获取数据
+        headers = result[0].keys()  # 这里仍然保留数据库中的列名
+        self.FQtable_layout.setSpacing(2)  # 设置布局的间距为 2，若為0則是去除单元格之间的间隙
+
+        # 创建表头
+        for col, header in enumerate(FQcustom_headers):
+            header_label = QLabel(header)
+            header_label.setFont(QFont("康熙字典體", 18))
+
+            # 基本样式
+            base_style = "border: 1px solid #6C1002; background-color: #FBF0F0; padding: 5px; color: #6C1002;"
+
+            # 只给表头的第一个单元格添加左上角圆角
+            if col == 0:
+                base_style += "border-top-left-radius: 15px;"
+            # 只给表头的最后一个单元格添加右上角圆角
+            elif col == len(FQcustom_headers) - 1:
+                base_style += "border-top-right-radius: 15px;"
+
+            header_label.setStyleSheet(base_style)
+            header_label.setAlignment(Qt.AlignCenter)
+            self.FQtable_layout.addWidget(header_label, 0, col)
+
         # 比较每列的值，用于标记不同的列
         column_differences = [False] * len(headers)  # 初始化标记，默认为没有差异
 
@@ -3445,13 +4698,14 @@ class SearchCharaWindow(QWidget):
         # 创建表格内容
         for row_num, row_data in enumerate(result):
             for col_num, key in enumerate(headers):
-                value_label = QLabel(str(row_data[key]))
+                FQvalue_label = QLabel(str(row_data[key]))
+                FQvalue_label.setWordWrap(True)  # 允许自动换行
 
                 # 如果是第3列（col_num == 2）且行号大于等于0（即第二行及之后），设置字体为 IpaP
                 if col_num == 2 and row_num >= 0:
-                    value_label.setFont(QFont("IpaP", 24))
+                    FQvalue_label.setFont(QFont("IpaP", 24))
                 else:
-                    value_label.setFont(QFont("宋体", 20))
+                    FQvalue_label.setFont(QFont("宋体", 20))
 
                 # 获取表格总行数和总列数
                 total_rows = len(result)
@@ -3477,10 +4731,10 @@ class SearchCharaWindow(QWidget):
                         elif col_num == total_cols - 1:  # 右下角单元格
                             base_style += "border-bottom-right-radius: 10px;"
 
-                value_label.setStyleSheet(base_style)
-                value_label.setAlignment(Qt.AlignCenter)
-                value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)  # 允许鼠标选择文本
-                self.table_layout.addWidget(value_label, row_num + 1, col_num)  # 使用 row_num + 1 使其显示在第二行及以后
+                FQvalue_label.setStyleSheet(base_style)
+                FQvalue_label.setAlignment(Qt.AlignCenter)
+                FQvalue_label.setTextInteractionFlags(Qt.TextSelectableByMouse)  # 允许鼠标选择文本
+                self.FQtable_layout.addWidget(FQvalue_label, row_num + 1, col_num)  # 使用 row_num + 1 使其显示在第二行及以后
 
 
 # 關於窗口
@@ -3512,7 +4766,7 @@ class UpdateLogWindow(QMainWindow):
         aboutTitle_label.setText("""關於軟件""")
         aboutTitle_label.setFont(QFont("康熙字典體", 20))
         aboutTitle_label.setStyleSheet("color: #8B1A1A;")
-        aboutTitle_label.setAlignment(Qt.AlignLeft)
+        aboutTitle_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(aboutTitle_label)
 
         aboutinfo_label = QLabel()
@@ -3520,7 +4774,7 @@ class UpdateLogWindow(QMainWindow):
             """       賢哉古音是一款按照文科研究思路開發的音韻學電子字典，用更低的操作門檻為語言學研究者提供熟悉的界面。軟件的基礎功能无須聯網，无須任何設置，只需要預先安裝幾種ttf字體。目前版本的材料和數據由王弘治老師提供，軟件製作和測試由郭宇軒完成。
         """)
         aboutinfo_label.setFont(QFont("Ipap", 16))
-        aboutinfo_label.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+        aboutinfo_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         aboutinfo_label.setStyleSheet("""
             QWidget {border: 1px solid brown; padding: 5px;}
         """)
@@ -3543,40 +4797,53 @@ class UpdateLogWindow(QMainWindow):
                 """)
         self.dev_mode_button.setFlat(True)  # 移除按钮的3D效果
         self.dev_mode_button.clicked.connect(self.handle_dev_mode_click)
-        layout.addWidget(self.dev_mode_button)
+        # 创建水平布局容器实现居中
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.addStretch(1)  # 左侧弹性空间
+        button_layout.addWidget(self.dev_mode_button)
+        button_layout.addStretch(1)  # 右侧弹性空间
+        button_layout.setAlignment(Qt.AlignHCenter)  # 水平居中
+        layout.addWidget(button_container)  # 添加到主布局
 
         # 创建日志内容标签
         log_label = QLabel()
         log_label.setTextFormat(Qt.RichText)  # 设置为富文本模式
-        #更新日志内容↓——————————————————————————————————————————
+        # 更新日志内容↓——————————————————————————————————————————
         log_label.setText("""
-            <ul style="font-family: 'IpaP'; font-size: 35px; line-height: 3.8;">
-                <li>v1.4.3 【當前版本】<br>
+            <ul style="font-family: 'IpaP'; font-size: 35px; line-height: 2.0;">
+                <li>v1.4.4 【當前版本】<br>
+                            ·聲符分佈和中古聲母：功能名稱改為“[聲符-中古聲母] 關係”；<br>
+                            ·程序：修復桌面圖標顯示錯誤的bug；所有功能窗口不允許重複打開多個；<br>
+                            ·新增子功能[《廣韻》聲符散佈]：可查看所有聲符的分佈數據；<br>
+                            ·新增子功能[反切對照查詢]：輸入被切字，查看《經典釋文》《玉篇》《廣韻》記載的反切異同；<br>
+                            ·查字：可切換字表查詢，支持原“古音表”，新增“廣韻字表”；新增數據來源說明。<br>
+                            ·關於：修改了部分UI；<br>
+                            ·新增[開發者窗口]（用戶不可見），更新日誌部分技術性說明移入開發者窗口。<br>
+                <li>v1.4.3 <br>
                             ·查中古韻：未選擇韻部時新增功能說明；備註可顯示有無異讀；<br>
                             ·賢哉Bot：接入DeepSeek，填寫API-key可使用智能問答；對話窗口形式更改；新增API-key設置按鈕和相關功能。<br>
                 <li>v1.4.2<br>
                             ·首頁：按鈕重新排序；<br>
                             ·更新日誌：新增軟件介紹；<br>
-                            ·查中古韻：窗口啟動時設置為最大化；字頭顏色改為按上古韻分；上古韻部篩選按鈕依歸字數量排序；
+                            ·查中古韻：窗口啟動時設為最大化；字頭顏色改為按上古韻分；上古韻部篩選按鈕依轄字數量排序；
                             支持保持當前韻圖并自定義輸出路徑；表格內字頭可以選中后點擊右鍵-查看備註；<br>
-                            ·查字：支持顯示聲符和開合信息，修復控制台結果報錯問題；<br>
+                            ·查字：支持顯示聲符和開合信息；<br>
                             ·新增子功能：聲符分佈，用於查看聲符在中古音中的分佈規律。<br>
                 <li>v1.4.1<br>
-                            ·查字：修改查字表格的圓角效果；修改功能按鈕佈局；新增輸入內容提示；<br>
-                            ·圖標樣式更新。<br>
+                            ·查字：修改表格的圓角效果；修改功能按鈕佈局；新增輸入內容提示；<br>
+                            ·圖標更新。<br>
                 <li>v1.4.0<br>
-                            ·查中古韻：以韻圖作為顯示結果的唯一方式，移除原有簡易表格、移除原有韻圖子窗口；<br>
-                            ·新圖標測試中（未來版本可能保留、修改或移除）。<br>
+                            ·查中古韻：以韻圖作為唯一顯示方式，移除原有簡易表格、移除原有韻圖子窗口。<br>
                 <li>v1.3.9<br>
                             ·中古音韻部-韻圖顯示：修復韻圖空白單元格邊框、底色消失bug。<br>
                 <li>v1.3.8<br>
                             ·中古音韻部-韻圖顯示：修復表格首行排序異常bug。<br>
                 <li>v1.3.7<br>
                             ·中古音韻部-韻圖顯示：表格滾動時，首行固定，方便查看；*為配合此改動，首行文字方向改為垂直排列；<br>
-                            ·代碼優化：刪除冗餘庫；<br>
                             ·已知問題：韻部字數較多時（仙、支等部），表格可能加載緩慢，待優化。<br>
                 <li>v1.3.5<br>
-                            ·賢哉bot：對話查字閃退bug已修復；修改了聊天氣泡大小。<br>
+                            ·賢哉bot：修復對話查字閃退bug；修改聊天氣泡大小。<br>
                 <li>v1.3.4<br>
                             ·中古音韻部-韻圖顯示：修復左上角選中的韻部提示顯示不全的bug；韻圖首列按照《方言調查字表》的聲母順序重新排布；<br>
                             ·已知問題：使用bot對話查詢時，可能出現閃退，待修復。<br>
@@ -3586,7 +4853,7 @@ class UpdateLogWindow(QMainWindow):
                 <li>v1.3.0<br>
                             ·各窗口的輸出表格：支持選中單元格内的字符，使用Ctrl+C複制。<br>
                 <li>v1.2.9<br>
-                            ·賢哉bot：修改了對話查字時多音字的呈現方式；增加了bot的幫助提示；<br>
+                            ·賢哉bot：修改對話查字時多音字的呈現方式；增加bot的幫助提示；<br>
                             ·查字：修復了關閉窗口再重新打開時，上一次查詢的結果未被清除的bug；<br>
                             ·更新日誌：修改了"關閉"按鈕的樣式。<br>
                 <li>v1.2.8<br>
@@ -3610,8 +4877,7 @@ class UpdateLogWindow(QMainWindow):
                             ·軟件名稱煥新，歡迎使用[賢哉古音]；<br>
                             ·增加所有輸出結果的表格邊距，使輸出的字符不會緊貼邊框；<br>
                             ·上古音聲母：選中按鈕時，音標字體加粗；<br>
-                            ·中古音韻部-韻圖顯示：優化了歸字填入列表時的判斷代碼；<br>
-                            ·中古音韻部：修復了未選中韻部時多次點擊"以韻圖顯示結果"會卡死的bug；<br>
+                            ·中古音韻部：修復了未選中韻部時多次點擊"以韻圖顯示結果"卡死的bug；<br>
                             ·查字：上古音的聲母音標改用國際音標專用字體（IpaP）；<br>
                             ·上古音韻部、中古音韻部查詢：窗口標題的"韻母"改為"韻部"。<br>
                 <li>v1.1.9<br>
@@ -3621,9 +4887,8 @@ class UpdateLogWindow(QMainWindow):
                               未選中韻部時，點擊"以韻圖顯示結果"會彈出警告；<br>
                             ·所有頁面的按鈕：鼠標移動到按鈕上時，指針變成手形。<br>
                 <li>v1.1.7<br>
-                            ·中古音韻部-韻圖顯示：1.1.6版本中，顏色重複使用的bug和調整窗口大小導致的表格列寬顯示bug已修復；
-                                同時修復了結果中有概率出現白色字體的問題；<br>
-                            ·代碼：優化了窗口圖標的調用方法。<br>
+                            ·中古音韻部-韻圖顯示：修復1.1.6版本中，顏色重複使用的bug和調整窗口大小導致的表格列寬顯示bug；
+                                修復結果中概率出現白色字體bug。<br>
                 <li>v1.1.6<br>
                             ·中古音韻部-韻圖顯示：現在可以从"等"、"中古音聲母"、"聲調"、"上古音聲母"四個維度分類顯示中古音韻部的歸屬字；<br>
                                 【測試中，未來版本可能保留、修改呈現形式或移除】<br>  
@@ -3644,23 +4909,23 @@ class UpdateLogWindow(QMainWindow):
                 <li>v1.1.0<br>
                             ·中古音韻部查詢：嘗試標記"等"時，顯示"加载中"提示【測試功能，未來版本可能修改或移除】；<br>
                             ·中古音韻部查詢：優化輸出結果的字間距，使文字顏色變化前後字間距一致；<br>
-                            ·更新日誌窗口：更改為倒序排列，最新版本的修改點置頂顯示，方便查閱。<br>
+                            ·更新日誌窗口：更改為倒序排列，最新修改點置頂顯示，方便查閱。<br>
                 <li>v1.0.9<br>
                             ·上古音韻部查詢、中古音聲母&韻部查詢：修復了點擊過的按鈕文字變黑的問題；<br>
                             ·中古音韻部查詢：加入多維度標記按鈕【測試中，目前儘能標記"等"】。 <br>              
                 <li>v1.0.4 <br>
-                            ·中古音聲母查詢窗口：表格字符改動"中古音的歸屬字"→"該中古音聲母的歸屬字"；<br>
+                            ·中古音聲母查詢窗口：表述改動"中古音的歸屬字"→"該中古音聲母的歸屬字"；<br>
                             ·更新日誌窗口：內容支持滾動；<br>
                             ·上古音聲母&韻部查詢、中古音聲母&韻部查詢窗口：輸出結果時，允許點擊的按鈕保持高亮；<br>
                             ·主窗口只允許同時存在一個，子窗口逐一適配中。 <br>  
                 <li>v1.0.3 <br>
-                            ·上古音聲母查詢窗口：更新頁面佈局與查詢邏輯；<br>
+                            ·查上古聲母：更新頁面佈局與查詢邏輯；<br>
                             ·查字窗口：支持輸入后按Enter鍵查詢。<br>
                 <li>v1.0.2 <br>  
-                            ·更新數據庫條目：修正中古韻部[咸]誤作[鹹]的錯誤；<br>
-                            ·中古音韻部查詢按鈕：基於切韻韻系、廣韻韻目重新排序；<br>
-                            ·增加[更新日誌]查看功能。<br>                                
-                <li>v1.0.1 - 修復了部分屏幕分辨率的UI適配問題。</li>                          
+                            ·數據庫條目：修正中古韻部[咸]誤作[鹹]的錯誤；<br>
+                            ·查中古韻部：按鈕基於切韻韻系、廣韻韻目重新排序；<br>
+                            ·新增子功能：[更新日誌]。<br>                                
+                <li>v1.0.1 - UI適配部分高分辨率設備。</li>                          
                 <li>v1.0.0 - 初始版本打包。</li>
             </ul>
         """)  # 這屬於html代碼↑
@@ -3717,66 +4982,123 @@ class UpdateLogWindow(QMainWindow):
     def open_dev_mode(self):
         """打开开发者模式窗口"""
         dev_dialog = QDialog(self)
-        dev_dialog.setWindowTitle("開發者模式")
-        dev_dialog.setWindowIcon(self.windowIcon())
-        dev_dialog.setFixedSize(600, 400)
+        dev_dialog.setWindowTitle("賢哉古音 - 開發者的備註和碎碎念")
 
-        layout = QVBoxLayout(dev_dialog)
+        # 移除帮助按钮
+        dev_dialog.setWindowFlags(
+            dev_dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint
+        )
+        # 调用函数设置窗口图标
+        set_window_icon(self, 'icon.ico')
+        dev_dialog.setFixedSize(1200, 900)  # 增大窗口尺寸
 
-        title_label = QLabel("開發者選項")
-        title_label.setFont(QFont("康熙字典體", 24))
-        title_label.setStyleSheet("color: #8B1A1A;")
+        # 主垂直布局
+        main_layout = QVBoxLayout(dev_dialog)
+
+        # 开发者标题
+        title_label = QLabel("開發者備註")
+        title_label.setFont(QFont("康熙字典體", 20))
+        title_label.setStyleSheet("""
+                    color: #8B1A1A;
+                    padding: 5px;
+                    text-align: center;
+                """)
         title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        main_layout.addWidget(title_label)
 
-        info_label = QLabel("您已進入開發者模式，高級功能已解鎖。")
-        info_label.setFont(QFont("Ipap", 16))
-        info_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(info_label)
+        # 添加分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("background-color: #8B1A1A; height: 2px;")
+        main_layout.addWidget(separator)
 
-        # 添加一些开发者选项示例
-        options = [
-            "數據庫調試工具",
-            "字體渲染測試",
-            "性能監控面板",
-            "實驗性功能開關"
-        ]
+        # 创建QTextEdit作为开发者信息区域
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)  # 禁止用户编辑内容
+        text_edit.setFont(QFont("Aa古典刻本宋", 14))
+        text_edit.setStyleSheet("""
+                    QTextEdit {
+                        background-color: #fcfbf8;
+                        border: 1px solid #8B1A1A;
+                        border-radius: 8px;
+                        padding: 15px;
+                        margin: 15px;
+                    }
+                """)
 
-        for option in options:
-            btn = QPushButton(option)
-            btn.setFont(QFont("Ipap", 14))
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #f0f0f0;
-                    border: 1px solid #8B1A1A;
-                    padding: 8px;
-                    margin: 5px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                }
-            """)
-            layout.addWidget(btn)
+        # 设置HTML格式的占位内容
+        html_content = """
+                <h3 style="color: #8B1A1A; font-family: '康熙字典體';">說 明</h3>
+                <p style="font-family: 'IpaP'; font-size: 14pt;">
+                    此為開發者記錄代碼優化和注意事項的面板。<br>
+                </p>
 
-        close_btn = QPushButton("關閉開發者模式")
-        close_btn.setFont(QFont("康熙字典體", 16))
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #8B1A1A;
-                color: white;
-                border-radius: 8px;
-                padding: 8px;
-                margin-top: 15px;
-            }
-            QPushButton:hover {
-                background-color: #a83232;
-            }
-        """)
-        close_btn.clicked.connect(dev_dialog.accept)
-        layout.addWidget(close_btn)
+                <h3 style="color: #8B1A1A; font-family: '康熙字典體';">注意事項</h3>
+                <ul style="font-family: 'IpaP'; font-size: 15pt;">
+                    <li>2025年第一屆“人工智能与音韻學”學術研討會·優秀項目！<br></li>
+                    <li>bs4庫（以及任何与BeautifulSoup相關庫）無法被pyinstaller打包！勿調用。<br></li>
+                    <li>進行任何沒有把握的修改時，一定先備份原版代碼！<br></li>
+                </ul>
+
+                <h3 style="color: #8B1A1A; font-family: '康熙字典體';">代碼優化</h3>
+                <p style="font-family: 'IpaP'; font-size: 15pt;">
+                    <li>v1.4.4</li>
+                        ·[聲符散佈]窗口第一次打開時，从數據庫查詢數據，後續再打開就从緩存里讀數據，速度更快，不用重複加載；<br>
+                        ·各種功能窗口終於不會被重複打開了；<br>
+                        ·在打包命令的“--windowed”前面插入“-i icon.ico”，就可以讓桌面圖標正確顯示“賢”字標，而非PyInstaller蟒蛇標；<br>
+	                    ·數據庫：修改Database的表名：ancienttesttable2 → ancienttable1，加入“廣韻字表”“經典釋文玉篇廣韻反切對照表”（數據來自Poem，郭宇軒整理）。<br>
+                    <li>v1.4.2</li>
+	                    ·查字：修復控制台結果報錯問題。<br>
+                    <li>v1.4.0</li>
+	                    ·新圖標測試（1.4.2已合入）。<br>
+                    <li>v1.3.7</li>
+	                    ·代碼優化：刪除冗餘庫。<br>
+                    <li>v1.2.0</li>
+	                    ·中古音韻部-韻圖顯示：優化了歸字填入列表時的判斷代碼。<br>
+                    <li>v1.1.7</li>
+                        ·代碼：優化了窗口圖標的調用方法。<br>
+                </p>
+                <!-- 居中显示的版权信息 -->
+                <div style="color: #592222; text-align: center; margin: 20px 0;">
+                    <p style="font-family: '康熙字典體'; font-size: 15pt; margin: 0;">
+                        ————版權所有 © 2025 上海師範大學數字人文中心————
+                    </p>
+                """
+        text_edit.setHtml(html_content)
+        main_layout.addWidget(text_edit, 1)  # 添加伸缩因子使文本区域占据剩余空间
+
+        # 添加退出按钮容器
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 0, 20, 20)  # 右下边距
+
+        # 退出开发者窗口按钮
+        exit_button = QPushButton("隱藏Dev窗口")
+        exit_button.setFont(QFont("康熙字典體", 14))
+        exit_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #8B1A1A;
+                        color: white;
+                        border-radius: 8px;
+                        padding: 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #a83232;
+                        font-weight: bold;
+                    }
+                """)
+        exit_button.setCursor(Qt.PointingHandCursor)
+        exit_button.clicked.connect(dev_dialog.accept)
+
+        # 将按钮添加到布局并右对齐
+        button_layout.addStretch()  # 添加伸缩空间使按钮靠右
+        button_layout.addWidget(exit_button)
+
+        main_layout.addWidget(button_container)
 
         dev_dialog.exec_()
+
 
 # ————————————————————————————————————————————————————————————————————————————————————————————
 if __name__ == '__main__':
