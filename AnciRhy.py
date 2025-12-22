@@ -1,6 +1,8 @@
 import colorsys
 import json
+import math
 import os
+import time
 import sys
 import re
 import threading
@@ -16,8 +18,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QLineEdit, QFrame, QSizePolicy, QScrollArea,
                              QToolTip, QRadioButton, QComboBox, QDialog, QTextEdit, QDialogButtonBox, QMenu,
                              QAbstractItemView, QHeaderView, QTableWidgetItem, QTableWidget, QFormLayout,
-                             QToolButton, QSpacerItem, QTextBrowser, QProgressDialog)
-from PyQt5.QtGui import QFont, QIcon, QCursor, QColor
+                             QToolButton, QSpacerItem, QTextBrowser, QProgressDialog, QGroupBox, QProgressBar, )
+from PyQt5.QtGui import QFont, QIcon, QCursor, QColor, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QSharedMemory, QSystemSemaphore, QSize, QEvent, QTimer, \
     QRect, QThread
 import sqlite3
@@ -103,6 +105,7 @@ class MainWindow(QMainWindow):
         self.fanqieduizhao_window = None
         self.shengfu_sanbu_window = None
         self.shengfu_zhonggusheng_window = None
+        self.shengyun_match_window = None
 
         self.shengfu_sanbu_data_cache = None  # 添加聲符散佈的数据缓存变量
 
@@ -112,6 +115,8 @@ class MainWindow(QMainWindow):
 
         self.progress_dialog = None  # 进度对话框变量
         self.bot_chat_window = None  # 确保 bot 聊天窗口变量已初始化
+
+        self.windows_to_close = []  # 新增：用于跟踪所有子窗口的列表
 
         # 设置窗口标题和大小
         self.setWindowTitle("賢哉古音 - 首頁")
@@ -197,10 +202,11 @@ class MainWindow(QMainWindow):
             button_layout2.addWidget(button2)  # 将按钮添加到水平布局
 
         button_layout3 = QHBoxLayout()  # 第3行按钮的布局
-        buttons_texts3 = ["《廣韻》聲符散佈", "[聲符 - 中古聲母]  關係"]
-        button_colors3 = ["#8E4A37", "#8C0D28"]
+        buttons_texts3 = ["《廣韻》聲符散佈", "[聲符 - 中古聲母]  關係", "聲韻匹配試煉場【嘗嘗賢淡】"]
+        button_colors3 = ["#8E4A37", "#8C0D28", "#CA6503"]
         button_commands3 = [self.open_shengfu_sanbu_window,
-                            self.open_shengfu_zhonggusheng_window
+                            self.open_shengfu_zhonggusheng_window,
+                            self.open_shengyun_match_window
                             ]
         for text, color, command in zip(buttons_texts3, button_colors3, button_commands3):
             button3 = QPushButton(text)
@@ -223,7 +229,7 @@ class MainWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
 
         # 更新日志按钮样式优化
-        log_button = QPushButton("v 1.4.4 關於賢哉古音")
+        log_button = QPushButton("v 1.4.5 關於賢哉古音")
         log_button.setStyleSheet("""
            QPushButton {
                color: #B22222;  
@@ -400,25 +406,78 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """重写关闭事件，关闭所有数据库连接"""
-        # 关闭主线程连接
-        if hasattr(self, 'cursor') and self.cursor:
-            try:
-                self.cursor.close()
-            except:
-                pass
+        # 创建自定义对话框
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("賢哉古音 - 退出確認")
+        msg_box.setText("確實要退出？這將關閉所有窗口")
+        msg_box.setIcon(QMessageBox.Question)
 
-        if hasattr(self, 'conn') and self.conn:
-            try:
-                self.conn.close()
-            except:
-                pass
-        # 关闭所有子线程连接（只关闭当前线程的连接）
-        self.close_thread_connections()
-        # 标记应用程序正在关闭
-        self.is_closing = True
+        # 创建自定义按钮
+        yes_button = msg_box.addButton("去意已決", QMessageBox.YesRole)
+        no_button = msg_box.addButton("再等等", QMessageBox.NoRole)
+        yes_button.setCursor(Qt.PointingHandCursor)
+        no_button.setCursor(Qt.PointingHandCursor)
 
-        # 调用父类的关闭事件
-        super().closeEvent(event)
+        # 设置默认按钮
+        msg_box.setDefaultButton(no_button)
+
+        # 显示对话框并等待用户响应
+        msg_box.exec_()
+
+        if msg_box.clickedButton() == yes_button:
+            # 用户确认退出 - 执行关闭操作
+            # 1. 关闭所有子窗口
+            self.close_all_child_windows()
+
+            # 2. 关闭数据库连接
+            if hasattr(self, 'cursor') and self.cursor:
+                try:
+                    self.cursor.close()
+                except:
+                    pass
+            if hasattr(self, 'conn') and self.conn:
+                try:
+                    self.conn.close()
+                except:
+                    pass
+
+            # 3. 关闭所有子线程连接
+            self.close_thread_connections()
+
+            # 4. 标记应用程序正在关闭
+            self.is_closing = True
+
+            # 5. 调用父类的关闭事件
+            super().closeEvent(event)
+        else:
+            # 用户取消退出 - 忽略关闭事件
+            event.ignore()
+
+    def close_all_child_windows(self):
+        """关闭所有打开的子窗口"""
+        # 定义需要关闭的窗口列表
+        windows = [
+            self.search_window,
+            self.shanggusheng_window,
+            self.shangguyun_window,
+            self.zhonggusheng_window,
+            self.zhongguyun_window,
+            self.update_log_window,
+            self.fanqieduizhao_window,
+            self.shengfu_sanbu_window,
+            self.shengfu_zhonggusheng_window,
+            self.shengyun_match_window
+        ]
+
+        # 安全关闭每个窗口
+        for window in windows:
+            if window is not None:
+                try:
+                    # 检查窗口是否有效且可见
+                    if not sip.isdeleted(window) and window.isVisible():
+                        window.close()
+                except RuntimeError:
+                    pass  # 忽略无效窗口引用
 
     # ————————————下面是bot图标代碼——————————————————————————
     def blink_bot_icon(self):
@@ -1426,6 +1485,61 @@ class MainWindow(QMainWindow):
         self._search_window_conn = clear_search_ref
         self.search_window.destroyed.connect(self._search_window_conn)
 
+    def open_shengyun_match_window(self):
+        # 定义清除引用的局部函数
+        def clear_shengyun_match_window_ref():
+            """安全清除窗口引用"""
+            print("清除查字窗口引用")
+            # 只有在引用仍然指向同一窗口时才清除
+            if getattr(self, 'shengyun_match_window', None) is not None:
+                try:
+                    # 检查对象是否仍然有效
+                    if sip.isdeleted(self.shengyun_match_window):
+                        self.shengyun_match_window = None
+                except:
+                    self.shengyun_match_window = None
+
+        # 安全访问窗口引用
+        window = getattr(self, 'shengyun_match_window', None)
+        if window is not None:
+            try:
+                # 检查窗口是否有效且可见
+                if sip.isdeleted(window) or not window.isVisible():
+                    # 窗口无效或已关闭
+                    self.shengyun_match_window = None
+                else:
+                    # 处理最小化状态
+                    if window.isMinimized():
+                        window.showNormal()
+                    # 激活并置顶
+                    window.activateWindow()
+                    window.raise_()
+                    print("聲韻匹配窗口已激活并置顶")
+                    return
+            except RuntimeError as e:
+                # 处理PyQt对象已被删除的情况
+                print(f"聲韻匹配窗口引用异常: {e}")
+                self.shengyun_match_window = None
+
+        # 创建新窗口
+        print("打开了聲韻匹配窗口")
+        self.shengyun_match_window = ShengyunMatchWindow()
+        # 设置关闭时自动销毁
+        self.shengyun_match_window.setAttribute(Qt.WA_DeleteOnClose)
+        # 显示窗口
+        self.shengyun_match_window.show()
+
+        # 确保只有一个清除引用连接
+        if hasattr(self, '_shengyun_match_window_conn'):
+            try:
+                self.shengyun_match_window.destroyed.disconnect(self._shengyun_match_window_conn)
+            except TypeError:
+                pass
+
+        # 创建新连接
+        self._shengyun_match_window_conn = clear_shengyun_match_window_ref
+        self.shengyun_match_window.destroyed.connect(self._shengyun_match_window_conn)
+
     def open_shanggusheng_window(self):
        # 定义清除引用的局部函数
         def clear_shanggusheng_window_ref():
@@ -1874,7 +1988,799 @@ class MainWindow(QMainWindow):
         self._update_log_window_conn = clear_update_log_window_ref
         self.update_log_window.destroyed.connect(self._update_log_window_conn)
 
+#聲韻匹配測試遊戲————————————————————————————————————————————————————————————
+class ShengyunMatchWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("賢哉古音 - 聲韻匹配試煉場【嘗嘗賢淡】")
+        self.setGeometry(110, 200, 1600, 1000)
+        self.setFixedWidth(1600)
+        self.setMinimumHeight(800)
+        # 调用外部图标设置函数
+        set_window_icon(self, 'icon.ico')  # 直接使用外部函数
+        # 使用外部数据库连接函数创建连接
+        self.conn = create_db_connection()  # 调用外部函数创建连接
+        self.cursor = self.conn.cursor()  # 创建游标
 
+        self.progress_timer = None  # 确保初始化
+
+        self.current_difficulty = "normal"
+        self.current_mode = "zhonggusheng"  # 新增：当前选择的表
+        self.current_character = ""
+        self.correct_values = []
+        self.options = []
+        self.correct_option_index = -1
+        self.answer_buttons = []
+        self.base_path = self.get_base_path()
+        self.initUI()
+
+    def get_base_path(self):
+        """获取资源文件的基础路径（兼容PyInstaller打包环境）"""
+        if getattr(sys, 'frozen', False):
+            # 打包后的exe执行路径
+            return sys._MEIPASS
+        else:
+            # 正常Python脚本执行路径
+            return os.path.dirname(os.path.abspath(__file__))
+
+    def resource_path(self, relative_path):
+        """获取资源的绝对路径"""
+        return os.path.join(self.base_path, relative_path)
+
+    def initUI(self):
+        # 创建主布局
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
+
+        # 初始化统计变量
+        self.total_questions = 0
+        self.correct_answers = 0
+
+        # ===== 顶部布局 =====
+        top_layout = QHBoxLayout()
+        main_layout.addLayout(top_layout)
+
+        # ===== 顶部容器（添加边框）=====
+        top_container = QWidget()
+        top_container.setObjectName("topContainer")  # 添加对象名
+        top_container.setStyleSheet("""
+                    #topContainer {  /* 使用ID选择器精确指定 */
+                        border: 2px solid #5D4037;  /* 深棕色边框 */
+                        border-radius: 8px;         /* 圆角 */
+                    }
+               """)
+        top_layout = QHBoxLayout(top_container)  # 使用容器包裹顶部布局
+        main_layout.addWidget(top_container)  # 将容器添加到主布局
+
+        # ==== 左侧区域：模式选择 ====
+        left_layout = QVBoxLayout()
+        top_layout.addLayout(left_layout)
+
+        # 模式选择标签
+        table_label = QLabel("選擇試煉模式:")
+        table_label.setFont(QFont("康熙字典體", 16))
+        table_label.setStyleSheet("""
+                    color: #662A1D; 
+                    margin-right: 10px;
+                    background-color: transparent;  /* 透明背景 */
+                """)
+        left_layout.addWidget(table_label)
+
+        # 下拉选择框
+        self.table_combo = QComboBox()
+        self.table_combo.addItem("[字-中古聲母] 匹配")
+        self.table_combo.addItem("[字-中古韻部] 匹配")
+        self.table_combo.addItem("[字-上古韻部] 匹配")
+        self.table_combo.setFont(QFont("康熙字典體", 15))
+        self.table_combo.setCursor(Qt.PointingHandCursor)
+        self.table_combo.setFixedHeight(50)
+        self.table_combo.currentIndexChanged.connect(self.mode_changed)
+        left_layout.addWidget(self.table_combo)
+
+        # ==== 中间区域：难度选择组 ====
+        center_layout = QHBoxLayout()
+        top_layout.addLayout(center_layout, 1)  # 添加伸缩因子使居中
+
+        # 难度选择组
+        difficulty_group = QGroupBox("試煉難度")
+        difficulty_group.setFont(QFont("康熙字典體", 14))
+        difficulty_layout = QHBoxLayout()
+        difficulty_group.setLayout(difficulty_layout)
+        self.difficulty_normal = QRadioButton("普通（默認）")
+        self.difficulty_normal.setChecked(True)
+        self.difficulty_hard = QRadioButton("困難（限時10秒）")
+        self.difficulty_hell = QRadioButton("地獄（限時5秒）")
+        for btn in [self.difficulty_normal, self.difficulty_hard, self.difficulty_hell]:
+            btn.setFont(QFont("康熙字典體", 14))
+            btn.setCursor(Qt.PointingHandCursor)
+            difficulty_layout.addWidget(btn)
+        # 连接信号
+        self.difficulty_normal.toggled.connect(self.update_difficulty)
+        self.difficulty_hard.toggled.connect(self.update_difficulty)
+        self.difficulty_hell.toggled.connect(self.update_difficulty)
+
+        center_layout.addWidget(difficulty_group, alignment=Qt.AlignCenter)  # 居中对齐
+        # ==== 右侧区域：统计标签 ====
+        right_layout = QHBoxLayout()
+        top_layout.addLayout(right_layout)
+
+        # 创建统计标签
+        self.stats_label = QLabel("已答0題，做對0題 | 正確率: 0%")
+        self.stats_label.setFont(QFont("康熙字典體", 14))
+        self.stats_label.setStyleSheet("""
+                        color: #5D4037;
+                        background-color: #f7eee6;
+                        border: 2px solid #8D6E63;
+                        border-radius: 10px;
+                        padding: 5px 15px;
+                        margin-left: 15px;
+                    """)
+        right_layout.addWidget(self.stats_label)
+
+        # ===== Bot提示区域 =====
+        bot_layout = QHBoxLayout()
+        bot_layout.setContentsMargins(10, 10, 10, 10)  # 设置边距
+        bot_layout.setSpacing(10)  # 设置组件间距
+        main_layout.addLayout(bot_layout)
+        # 添加伸缩空间
+        bot_layout.addStretch(1)
+        # Bot头像
+        self.bot_icon = QLabel()
+        self.bot_icon.setFixedSize(70, 70)
+        self.bot_icon.setScaledContents(True)
+        self.set_bot_icon('bot.png')  # 初始图标
+        bot_layout.addWidget(self.bot_icon)
+
+        # 提示气泡
+        self.hint_bubble = QLabel()
+        self.hint_bubble.setFont(QFont("宋体", 16))
+        self.hint_bubble.setStyleSheet("""
+            background-color: #f0f8ff;
+            color: #333;
+            border: 2px solid #c0d6e4;
+            border-radius: 15px;
+            padding: 15px;
+            margin: 5px;
+        """)
+        self.hint_bubble.setWordWrap(True)
+        self.hint_bubble.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.hint_bubble.setMinimumHeight(85)
+        bot_layout.addWidget(self.hint_bubble, 1)  # 设置拉伸因子为1
+
+        # 添加伸缩空间
+        bot_layout.addStretch(1)
+
+        # ===== 字符显示区域 =====
+        self.char_label = QLabel()
+        self.char_label.setFont(QFont("宋体", 120))
+        self.char_label.setAlignment(Qt.AlignCenter)
+        self.char_label.setStyleSheet("""
+            color: #8B4513;
+            background-color: #fdfbf9;
+            border: 3px solid #8B4513;
+            border-radius: 20px;
+            padding: 20px;
+            margin: 20px;
+        """)
+        main_layout.addWidget(self.char_label)
+
+        # ===== 选项按钮区域 =====
+        options_layout = QHBoxLayout()  # 改为水平布局
+        main_layout.addLayout(options_layout)
+        options_layout.setSpacing(30)  # 设置按钮间距
+
+        # 创建选项按钮
+        self.option_buttons = []
+        for i in range(4):
+            btn = QPushButton()
+            btn.setFont(QFont("康熙字典體", 28))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedSize(200, 130)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ebd4bf;
+                    color: #5D4037;
+                    border: 3px solid #8D6E63;
+                    border-radius: 15px;
+                }
+                QPushButton:hover {
+                    background-color: #D7C29D;
+                    border: 4px solid #6D4C41;
+                }
+            """)
+            btn.clicked.connect(lambda _, idx=i: self.check_answer(idx))
+            self.option_buttons.append(btn)
+            options_layout.addWidget(btn)  # 直接添加到水平布局
+
+        # 添加伸缩空间
+        main_layout.addStretch(1)
+
+        # ==== 新增倒计时区域 ====
+        self.timer_layout = QHBoxLayout()
+        main_layout.addLayout(self.timer_layout)
+        self.timer_layout.setAlignment(Qt.AlignCenter)
+
+        # ===== 底部按钮 =====
+        bottom_layout = QHBoxLayout()
+        main_layout.addLayout(bottom_layout)
+
+        # 在 timer_label 前面添加弹性空间
+        self.timer_layout.addStretch(1)  # 添加左侧弹性空间
+
+        # 倒计时标签
+        self.timer_label = QLabel("剩餘時間:")
+        self.timer_label.setFont(QFont("康熙字典體", 18))
+        self.timer_label.setStyleSheet("color: #5D4037;")
+        self.timer_layout.addWidget(self.timer_label)
+
+        # 倒计时显示
+        self.timer_display = QLabel("10秒")
+        self.timer_display.setFont(QFont("康熙字典體", 18, QFont.Bold))
+        self.timer_display.setStyleSheet("color: #D32F2F;")
+        self.timer_layout.addWidget(self.timer_display)
+
+        # 倒计时进度条
+        self.timer_progress = QProgressBar()
+        self.timer_progress.setFixedHeight(20)
+        self.timer_progress.setRange(0, 100)
+        self.timer_progress.setValue(100)
+        self.timer_progress.setTextVisible(False)
+
+        # 修改为：宽度为窗口宽度的60%
+        self.timer_progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.timer_progress.setMinimumWidth(200)  # 最小宽度
+        self.timer_progress.setMaximumWidth(400)  # 最大宽度
+
+        self.timer_progress.setStyleSheet("""
+            QProgressBar {
+            border: 2px solid #8D6E63;
+            border-radius: 5px;
+            background: #f7eee6;
+            width: 200px;
+            }
+            QProgressBar::chunk {
+            background-color: #4CAF50; /* 默认绿色 */
+            border-radius: 3px;
+            }
+        """)
+        self.timer_layout.addWidget(self.timer_progress)
+
+        # 在 timer_progress 后面添加弹性空间
+        self.timer_layout.addStretch(1)  # 添加右侧弹性空间
+
+        # 初始隐藏倒计时区域
+        self.timer_layout.setEnabled(False)
+        for i in range(self.timer_layout.count()):
+            widget = self.timer_layout.itemAt(i).widget()
+            if widget:
+                widget.hide()
+
+        # 添加左侧伸缩空间
+        bottom_layout.addStretch(1)
+
+        # 下一题按钮
+        self.next_btn = QPushButton("下一題☞")
+        self.next_btn.setFont(QFont("康熙字典體", 20))
+        self.next_btn.setCursor(Qt.PointingHandCursor)
+        self.next_btn.setFixedHeight(80)
+        self.next_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 10px 20px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+
+        self.next_btn.clicked.connect(self.new_question)
+        self.next_btn.setEnabled(False)
+        bottom_layout.addWidget(self.next_btn)
+
+        # 添加右侧伸缩空间
+        bottom_layout.addStretch(1)
+
+        # 在 initUI 后调用 update_difficulty 来生成第一题
+        QTimer.singleShot(100, self.update_difficulty)
+
+    def set_bot_icon(self, filename):
+        """设置机器人图标（使用资源路径）"""
+        icon_path = self.resource_path(filename)
+        pixmap = QPixmap(icon_path)
+        if pixmap.isNull():
+            print(f"无法加载图片: {icon_path}")
+        else:
+            pixmap = pixmap.scaled(70, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.bot_icon.setPixmap(pixmap)
+
+    def update_hint_text(self):
+        """更新提示气泡文本"""
+        if self.current_mode == "zhonggusheng":
+            hint = "選擇該字對應的中古聲母"
+        elif self.current_mode == "zhongguyun":
+            hint = "選擇該字對應的中古韻部"
+        else:  # shangguyun
+            hint = "選擇該字對應的上古韻部"  # 新增提示文本
+        if len(self.correct_values) > 1:
+            hint += "\n注意：該字有多個讀音"
+        self.hint_bubble.setText(hint)
+
+    # 添加难度更新方法
+    def update_difficulty(self):
+        """更新难度设置"""
+        # 停止任何正在运行的计时器
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+        if hasattr(self, 'progress_timer') and self.progress_timer and self.progress_timer.isActive():
+            self.progress_timer.stop()
+        if self.difficulty_normal.isChecked():
+            self.current_difficulty = "normal"
+            # 隐藏倒计时区域
+            self.timer_layout.setEnabled(False)
+            for i in range(self.timer_layout.count()):
+                widget = self.timer_layout.itemAt(i).widget()
+                if widget:
+                    widget.hide()
+        elif self.difficulty_hard.isChecked():
+            self.current_difficulty = "hard"
+            self.timer_seconds = 10  # 困难模式10秒
+            # 显示倒计时区域
+            self.timer_layout.setEnabled(True)
+            for i in range(self.timer_layout.count()):
+                widget = self.timer_layout.itemAt(i).widget()
+                if widget:
+                    widget.show()
+        elif self.difficulty_hell.isChecked():
+            self.current_difficulty = "hell"
+            self.timer_seconds = 5  # 地狱模式5秒
+            # 显示倒计时区域
+            self.timer_layout.setEnabled(True)
+            for i in range(self.timer_layout.count()):
+                widget = self.timer_layout.itemAt(i).widget()
+                if widget:
+                    widget.show()
+
+        # 更新倒计时显示
+        self.update_timer_display()
+
+        # 生成新题目
+        self.new_question()
+
+    # 添加倒计时更新显示方法
+    def update_timer_display(self):
+        """更新倒计时显示"""
+        if self.current_difficulty == "hard":
+            self.timer_display.setText(f"{self.timer_seconds}秒")
+            progress_value = int((self.timer_seconds / 10) * 100)
+            self.timer_progress.setValue(progress_value)
+
+            # 根据剩余时间比例设置颜色
+            if progress_value > 50:
+                color = "#4CAF50"  # 绿色
+            else:
+                color = "#F44336"  # 红色
+
+            self.timer_progress.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 2px solid #8D6E63;
+                    border-radius: 5px;
+                    background: #f7eee6;
+                    width: 200px;
+                }}
+                QProgressBar::chunk {{
+                    background-color: {color};
+                    border-radius: 3px;
+                }}
+            """)
+
+        elif self.current_difficulty == "hell":
+            self.timer_display.setText(f"{self.timer_seconds}秒")
+            progress_value = int((self.timer_seconds / 5) * 100)
+            self.timer_progress.setValue(progress_value)
+
+            # 根据剩余时间比例设置颜色
+            if progress_value > 50:
+                color = "#4CAF50"  # 绿色
+            else:
+                color = "#F44336"  # 红色
+
+            self.timer_progress.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 2px solid #8D6E63;
+                    border-radius: 5px;
+                    background: #f7eee6;
+                    width: 200px;
+                }}
+                QProgressBar::chunk {{
+                    background-color: {color};
+                    border-radius: 3px;
+                }}
+            """)
+
+    def mode_changed(self, index):
+        """处理模式切换事件"""
+        # 停止任何正在运行的计时器
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+
+        # 重置难度为普通
+        self.difficulty_normal.setChecked(True)
+        self.current_difficulty = "normal"
+
+        # 更新模式
+        if index == 0:
+            self.current_mode = "zhonggusheng"
+        elif index == 1:
+            self.current_mode = "zhongguyun"
+        else:  # index == 2
+            self.current_mode = "shangguyun"  # 新增模式
+
+        # 更新UI显示
+        self.timer_layout.setEnabled(False)
+        for i in range(self.timer_layout.count()):
+            widget = self.timer_layout.itemAt(i).widget()
+            if widget:
+                widget.hide()
+
+        self.new_question()
+
+    def get_random_character(self):
+        """从数据库中按优先级随机获取一个字符"""
+        # 优先级1: 基本汉字区 [\u4E00-\u9FFF]
+        self.cursor.execute("""
+            SELECT 字頭 
+            FROM ancienttable1 
+            WHERE unicode(字頭) BETWEEN 19968 AND 40879  -- \u4E00-\u9FFF
+            ORDER BY RANDOM() 
+            LIMIT 1
+        """)
+        result = self.cursor.fetchone()
+
+        if result:
+            return result[0]
+
+        # 优先级2: 扩展A区 [\u3400-\u4DBF]
+        self.cursor.execute("""
+            SELECT 字頭 
+            FROM ancienttable1 
+            WHERE unicode(字頭) BETWEEN 13312 AND 19903  -- \u3400-\u4DBF
+            ORDER BY RANDOM() 
+            LIMIT 1
+        """)
+        result = self.cursor.fetchone()
+
+        if result:
+            return result[0]
+
+        # 优先级3: 其他字符
+        self.cursor.execute("""
+            SELECT 字頭 
+            FROM ancienttable1 
+            ORDER BY RANDOM() 
+            LIMIT 1
+        """)
+        result = self.cursor.fetchone()
+
+        return result[0] if result else "字"
+
+    def get_character_values(self, character):
+        """获取字符对应的所有声母或韵部值"""
+        if self.current_mode == "zhonggusheng":
+            column = "中古聲"
+        elif self.current_mode == "zhongguyun":
+            column = "中古韻"
+        else:  # shangguyun
+            column = "上古韻"  # 新增列名
+
+        self.cursor.execute(f"SELECT {column} FROM ancienttable1 WHERE 字頭 = ?", (character,))
+        results = self.cursor.fetchall()
+        return list(set([r[0] for r in results]))  # 去重
+
+    def get_random_values(self, exclude_list, count=3):
+        """从数据库中随机获取指定数量的值（排除正确值）"""
+        if self.current_mode == "zhonggusheng":
+            column = "中古聲"
+        elif self.current_mode == "zhongguyun":
+            column = "中古韻"
+        else:  # shangguyun
+            column = "上古韻"  # 新增列名
+
+        placeholders = ','.join(['?'] * len(exclude_list))
+        query = f"""
+            SELECT DISTINCT {column} 
+            FROM ancienttable1 
+            WHERE {column} NOT IN ({placeholders})
+            ORDER BY RANDOM() 
+            LIMIT ?
+        """
+        self.cursor.execute(query, (*exclude_list, count))
+        results = self.cursor.fetchall()
+        return [r[0] for r in results]
+
+    def new_question(self):
+        """生成新题目"""
+        # 停止可能正在运行的计时器
+        if hasattr(self, 'timer') and self.timer and self.timer.isActive():
+            self.timer.stop()
+        if hasattr(self, 'progress_timer') and self.progress_timer and self.progress_timer.isActive():
+            self.progress_timer.stop()
+        # 重置按钮状态
+        self.next_btn.setEnabled(False)
+        # 重置Bot图标和提示
+        self.set_bot_icon('bot.png')
+        for btn in self.option_buttons:
+            btn.setEnabled(True)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ebd4bf;
+                    color: #5D4037;
+                    border: 3px solid #8D6E63;
+                    border-radius: 15px;
+                }
+                QPushButton:hover {
+                    background-color: #D7C29D;
+                    border: 4px solid #6D4C41;
+                }
+            """)
+        # 根据难度设置倒计时
+        if self.current_difficulty == "hard":
+            self.timer_seconds = 10
+            self.start_time = time.time()
+            self.update_timer_display()
+
+            # 启动主计时器（1秒刷新字符）
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.update_timer)
+            self.timer.start(1000)
+
+            # 进度条计时器（0.1秒刷新实现平滑动画）
+            self.progress_timer = QTimer(self)
+            self.progress_timer.timeout.connect(self.update_progress_bar)
+            self.progress_timer.start(100)  # 改为100毫秒
+
+        elif self.current_difficulty == "hell":
+            self.timer_seconds = 5
+            self.start_time = time.time()
+            self.update_timer_display()
+
+            # 启动主计时器（1秒刷新字符）
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.update_timer)
+            self.timer.start(1000)
+
+            # 进度条计时器（0.1秒刷新实现平滑动画）
+            self.progress_timer = QTimer(self)
+            self.progress_timer.timeout.connect(self.update_progress_bar)
+            self.progress_timer.start(100)  # 改为100毫秒
+        else:  # 普通模式
+            # 确保普通模式下没有计时器运行
+            if hasattr(self, 'timer') and self.timer and self.timer.isActive():
+                self.timer.stop()
+            if hasattr(self, 'progress_timer') and self.progress_timer and self.progress_timer.isActive():
+                self.progress_timer.stop()
+        # 获取随机字符
+        self.current_character = self.get_random_character()
+        # 获取字符对应的所有值
+        self.correct_values = self.get_character_values(self.current_character)
+        # 设置字符显示（如果是多音字则添加星号）
+        if len(self.correct_values) > 1:
+            self.char_label.setText(f"{self.current_character}*")
+        else:
+            self.char_label.setText(self.current_character)
+        # 更新提示文本
+        self.update_hint_text()
+        # 准备选项
+        correct_value = random.choice(self.correct_values)  # 随机选择一个正确值
+        other_values = self.get_random_values(self.correct_values, 3)  # 获取三个干扰项
+        self.options = other_values + [correct_value]
+        random.shuffle(self.options)  # 随机打乱选项顺序
+        # 记录正确答案的索引
+        self.correct_option_index = self.options.index(correct_value)
+        # 更新按钮文本
+        for i, btn in enumerate(self.option_buttons):
+            btn.setText(self.options[i])
+
+    # 新增方法：专门更新进度条
+    def update_progress_bar(self):
+        """每0.1秒更新一次进度条，实现平滑动画"""
+        if self.current_difficulty == "hard":
+            total_time = 10.0
+        elif self.current_difficulty == "hell":
+            total_time = 5.0
+        else:
+            return
+
+        # 计算已用时间和剩余时间比例
+        elapsed = time.time() - self.start_time
+        remaining = max(0, total_time - elapsed)
+        remaining_ratio = remaining / total_time
+
+        # 使用线性插值计算进度值（更平滑）
+        progress_value = int(remaining_ratio * 100)
+
+        # 平滑的颜色过渡（从绿到黄再到红）
+        if remaining_ratio > 0.5:
+            # 绿色到黄色的过渡（50%-100%）
+            green = 180
+            red = min(255, int(510 * (1 - remaining_ratio)))
+            blue = 0
+        else:
+            # 黄色到红色的过渡（0%-50%）
+            red = 255
+            green = min(180, int(360 * remaining_ratio))
+            blue = 0
+
+        color = f"#{red:02X}{green:02X}{blue:02X}"
+
+        # 添加平滑结束效果（最后0.5秒闪烁）
+        if remaining < 0.5:
+            # 使用正弦函数创建闪烁效果
+            blink = int(127 + 128 * math.sin(time.time() * 10))
+            color = f"#{blink:02X}00{blink:02X}"
+
+        # 更新进度条
+        self.timer_progress.setValue(progress_value)
+
+        # 优化样式表 - 只更新颜色部分
+        self.timer_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 2px solid #8D6E63;
+                border-radius: 5px;
+                background: #f7eee6;
+                width: 200px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color};
+                border-radius: 3px;
+            }}
+        """)
+
+        # 时间耗尽时停止计时器
+        if remaining <= 0:
+            self.progress_timer.stop()
+
+    # 修改原方法：只更新字符显示
+    def update_timer(self):
+        """更新倒计时（每秒更新字符）"""
+        # 计算剩余时间
+        if self.current_difficulty == "hard":
+            total_time = 10.0
+        elif self.current_difficulty == "hell":
+            total_time = 5.0
+        else:
+            return
+
+        elapsed = time.time() - self.start_time
+        remaining = max(0, total_time - elapsed)
+
+        # 更新显示 - 使用整数秒数
+        seconds_left = int(remaining) + 1 if remaining % 1 > 0.5 else int(remaining)
+        self.timer_display.setText(f"{seconds_left}秒")
+        self.timer_seconds = seconds_left  # 更新状态变量
+
+        # 时间耗尽
+        if remaining <= 0:
+            self.timer.stop()
+            if hasattr(self, 'progress_timer') and self.progress_timer and self.progress_timer.isActive():
+                self.progress_timer.stop()
+            # 模拟错误选择
+            self.check_answer(-1)  # 使用-1表示超时
+
+    def check_answer(self, selected_index):
+        """检查用户选择的答案"""
+        # 停止所有可能正在运行的计时器
+        if hasattr(self, 'timer') and self.timer and self.timer.isActive():
+            self.timer.stop()
+        if hasattr(self, 'progress_timer') and self.progress_timer and self.progress_timer.isActive():
+            self.progress_timer.stop()
+
+        # 禁用所有按钮
+        for btn in self.option_buttons:
+            btn.setEnabled(False)
+
+        # 获取用户选择的答案
+        if selected_index >= 0:  # 正常选择
+            selected_value = self.options[selected_index]
+        else:  # 超时
+            selected_value = None
+
+        # 检查答案是否正确
+        if selected_index >= 0 and selected_value in self.correct_values:
+            # 正确答案样式
+            self.option_buttons[selected_index].setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    border: 3px solid #388E3C;
+                    border-radius: 15px;
+                }
+            """)
+            result = "✓正確！"
+            result_color = "#4CAF50"
+            # 更新Bot图标
+            self.set_bot_icon('botcorrect.png')
+        else:
+            # 错误答案或超时
+            if selected_index >= 0:
+                # 用户选择了错误答案
+                self.option_buttons[selected_index].setStyleSheet("""
+                    QPushButton {
+                        background-color: #F44336;
+                        color: white;
+                        border: 3px solid #D32F2F;
+                        border-radius: 15px;
+                    }
+                """)
+                result = "×錯誤！"
+                self.set_bot_icon('boterror.png')  # 使用超时图标
+            else:
+                # 超时情况
+                result = "×超時！"
+                self.set_bot_icon('boterror.png')  # 使用超时图标
+
+            result_color = "#F44336"
+
+            # 同时显示正确答案
+            self.option_buttons[self.correct_option_index].setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    border: 3px solid #388E3C;
+                    border-radius: 15px;
+                }
+            """)
+
+        # 更新提示文本 - 使用HTML格式实现不同颜色
+        if self.current_mode == "zhonggusheng":
+            info = f"""
+                <html>
+                <span style="color:{result_color}; font-weight:bold; font-size:16pt;">{result}</span>
+                <span style="color:black;">{self.current_character}的聲母：{'、'.join(self.correct_values)}</span>
+                </html>
+            """
+        elif self.current_mode == "zhongguyun":
+            info = f"""
+                <html>
+                <span style="color:{result_color}; font-weight:bold; font-size:16pt;">{result}</span>
+                <span style="color:black;">{self.current_character}的韻部：{'、'.join(self.correct_values)}</span>
+                </html>
+            """
+        else:  # shangguyun
+            info = f"""
+                <html>
+                <span style="color:{result_color}; font-weight:bold; font-size:16pt;">{result}</span>
+                <span style="color:black;">{self.current_character}的上古韻部：{'、'.join(self.correct_values)}</span>
+                </html>
+            """
+        self.hint_bubble.setText(info)
+
+        # 更新答题统计
+        self.total_questions += 1
+        if selected_index >= 0 and selected_value in self.correct_values:
+            self.correct_answers += 1
+        # 计算正确率（避免除以0）
+        accuracy = 0
+        if self.total_questions > 0:
+            accuracy = (self.correct_answers / self.total_questions) * 100
+        # 更新统计标签
+        self.stats_label.setText(
+            f"已答{self.total_questions}題，做對{self.correct_answers}題 | "
+            f"正確率: {accuracy:.1f}%"
+        )
+
+        # 启用下一题按钮
+        self.next_btn.setEnabled(True)
+
+    def closeEvent(self, event):
+        """关闭窗口时关闭数据库连接"""
+        self.conn.close()
+        event.accept()
 
 # 聲符-中古聲窗口——————————————————————————————————————————————————————————————————————————————
 from PyQt5.QtCore import pyqtSignal, QObject
@@ -2295,7 +3201,7 @@ class ShengfuSanbuWindow(QWidget):
             self.setup_table(shengmu_list, shengfu_list, total_counts, all_count_dicts)
 
             # 更新状态
-            self.status_label.setText(f"已顯示 {len(shengfu_list)} 個聲符的分佈數據 (從緩存)")
+            self.status_label.setText(f"已顯示 {len(shengfu_list)} 個聲符的分佈數據 (從緩存)，雙擊單元格可查看轄字詳情")
             self.status_label.setStyleSheet("color: #004AA2; padding: 10px;")
 
         except Exception as e:
@@ -2403,7 +3309,7 @@ class ShengfuSanbuWindow(QWidget):
             self.setup_table(shengmu_list, shengfu_list, total_counts, all_count_dicts)
 
             # 更新状态
-            self.status_label.setText(f"已顯示 {len(shengfu_list)} 個聲符的分佈數據")
+            self.status_label.setText(f"已顯示 {len(shengfu_list)} 個聲符的分佈數據，雙擊單元格可查看轄字詳情")
             self.status_label.setStyleSheet("color: #004AA2; padding: 10px;")
 
             # 发送缓存数据
@@ -2495,7 +3401,7 @@ class ShengfuSanbuWindow(QWidget):
             # 验证数量是否匹配
             if len(zitou_list) != cell_value:
                 QMessageBox.warning(self, "數據不一致",
-                                    f"數據庫查詢到{len(zitou_list)}個字頭，但表格顯示{cell_value}個")
+                                    f"數據庫查詢到{len(zitou_list)}個字頭，但表格顯示{cell_value}個，程序可能出錯，請聯繫開發者。")
 
             # 显示详情对话框
             self.show_zitou_detail(shengfu, shengmu, cell_value, zitou_list)
@@ -4153,8 +5059,8 @@ class SearchCharaWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("賢哉古音 - 查字")
-        self.setGeometry(110, 200, 1550, 820)
-        self.setFixedWidth(1500)
+        self.setGeometry(110, 200, 1600, 900)
+        self.setFixedWidth(1600)
         self.setMinimumHeight(800)
         # 调用函数设置窗口图标
         set_window_icon(self, 'icon.ico')
@@ -4166,7 +5072,7 @@ class SearchCharaWindow(QWidget):
         # 創建主布局
         layout = QVBoxLayout()
         self.setLayout(layout)
-        # ========== 新增：左上角下拉选择框 ==========
+        # ========== 左上角下拉选择框 ==========
         top_layout = QHBoxLayout()
         layout.insertLayout(0, top_layout)  # 插入到最顶部
 
@@ -4180,6 +5086,7 @@ class SearchCharaWindow(QWidget):
         self.table_combo = QComboBox()
         self.table_combo.addItem("古音表 (默認)")
         self.table_combo.addItem("廣韻字表")
+        self.table_combo.addItem("玉篇反切校表")
         self.table_combo.setFont(QFont("康熙字典體", 15))
         self.table_combo.setCursor(Qt.PointingHandCursor)
         self.table_combo.setFixedHeight(50)
@@ -4235,12 +5142,16 @@ class SearchCharaWindow(QWidget):
         # 在右側添加伸縮空間
         input_layout.addStretch(1)
 
-        # 添加提示標籤
-        tip_label = QLabel("*提示：僅支持繁體、單個漢字輸入\n————古音表數據：王弘治老師————廣韻字表數據：Poem————")
-        tip_label.setFont(QFont("Ipap", 13))
-        tip_label.setStyleSheet("color: gray;")
-        tip_label.setAlignment(Qt.AlignCenter)  # 水平居中
-        layout.addWidget(tip_label)
+        # ========== 提示标签区域 ==========
+        # 创建提示标签（作为实例变量）
+        self.tip_label = QLabel()
+        self.tip_label.setFont(QFont("Ipap", 13))
+        self.tip_label.setStyleSheet("color: gray;")
+        self.tip_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.tip_label)
+
+        # 初始化提示文本 - 确保在UI初始化后调用
+        self.update_tip_label()  # 更新提示标签
 
         # 連接回車事件
         self.search_chara_entry.returnPressed.connect(self.check_input)
@@ -4256,12 +5167,41 @@ class SearchCharaWindow(QWidget):
         self.table_layout.setSpacing(2)  # 设置布局的间距为 2
         scroll_area.setWidget(table_container)
 
-    # 新增：切换查询表
+    # 更新提示标签的方法（带动画效果）
+    def update_tip_label(self, animate=True):
+        # 获取当前提示文本
+        base_tip = "*提示：僅支持繁體、單個漢字輸入"
+        if self.current_table == "ancienttable1":
+            tip_text = f"{base_tip}\n————古音表18668條數據：王弘治老師————"
+        elif self.current_table == "guangyun":
+            tip_text = f"{base_tip}\n————廣韻字表25035條數據：Poem————"
+        elif self.current_table == "yupianfanqiejiao":
+            tip_text = f"{base_tip}\n————玉篇反切校24154條數據：Poem————"
+        else:
+            tip_text = base_tip
+
+        # 设置文本
+        print(f"更新提示标签: {self.current_table} -> {tip_text}")
+        self.tip_label.setText(tip_text)
+
+    # 切换查询表
     def change_table(self, index):
+        # 打印当前索引值用于调试
+        print(f"切换表索引: {index}")
+        # 更新当前表
         if index == 0:
             self.current_table = "ancienttable1"
-        else:
+        elif index == 1:
             self.current_table = "guangyun"
+        elif index == 2:
+            self.current_table = "yupianfanqiejiao"
+
+        # 打印当前表值用于调试
+        print(f"当前表: {self.current_table}")
+
+        # 更新提示标签
+        print(f"切换表索引: {index} -> {self.current_table}")
+        self.update_tip_label()
 
         # 切换表时清空输入框和表格内容
         self.clear_all()  # 新增：调用clear_all方法清空内容
@@ -4298,8 +5238,10 @@ class SearchCharaWindow(QWidget):
                 # 根据选择的表构建不同的查询
                 if self.current_table == "ancienttable1":
                     sql = "SELECT * FROM ancienttable1 WHERE 字頭=?"
-                else:  # 广韵字表
+                elif self.current_table == "guangyun": # 广韵字表
                     sql = "SELECT * FROM guangyun WHERE 廣韻字頭=?"
+                elif self.current_table == "yupianfanqiejiao": # 玉篇反切校表
+                    sql = "SELECT * FROM yupianfanqiejiao WHERE 玉篇字頭=?"
 
                 cursor.execute(sql, (chara,))
                 result = cursor.fetchall()
@@ -4329,13 +5271,18 @@ class SearchCharaWindow(QWidget):
             custom_headers = ["數據\nid", "字 頭", "上古\n聲母", "上古\n韻部", "中古\n聲母",
                               "中古\n韻部", "聲調", "等", "開合", "聲符", "備註"]
             headers = result[0].keys()
-        else:  # 广韵字表
+        elif self.current_table == "guangyun":  # 广韵字表
             custom_headers = ["字\n序", "字\n頭", "切韻\n擬音", "廣韻\n聲符", "上\n字", "下\n字",
                               "聲\n母", "韻\n部", "開\n合", "等", "調",
                               "頁\n序", "廣韻\n釋義"]
             headers = result[0].keys()
+        elif self.current_table == "yupianfanqiejiao":  # 玉篇反切校表
+            custom_headers = ["字\n頭",  "聲\n符", "字\n音", "聲\n紐", "呼", "等", "韻\n部",
+                              "調", "聲類", "攝", "殘卷\n反切\n上字","上\n字\n音", "殘卷\n反切\n下字","下\n字\n音",
+                              "宋本\n反切", "全本\n反切", "裴本\n反切", "廣韻\n反切"]
+            headers = result[0].keys()
 
-        self.table_layout.setSpacing(2)  # 设置布局的间距为 2，若為0則是去除单元格之间的间隙
+        self.table_layout.setSpacing(1)  # 设置布局的间距为 1，若為0則是去除单元格之间的间隙
 
         # 创建表头
         for col, header in enumerate(custom_headers):
@@ -4433,16 +5380,27 @@ class SearchCharaWindow(QWidget):
                     value_label = QLabel(str(row_data[key]))
                     value_label.setWordWrap(True)  # 允许自动换行
                     # 优化后的字体设置
-                    if self.current_table == "ancienttable1" and col_num == 2:  # 古音表 上古聲用IpaP字體
-                        value_label.setFont(QFont("IpaP", 20))
-                    elif self.current_table == "guangyun" and col_num == 2:  # 廣韻表 構擬用IpaP
-                        value_label.setFont(QFont("IpaP", 20))
-                    elif self.current_table == "guangyun" and col_num == 11 or col_num == 0:  # 廣韻表 序號和頁序的字小一點
-                        value_label.setFont(QFont("宋体", 16))
-                    elif self.current_table == "ancienttable1" and col_num == 0:  # 古音表 序號的字小一點
-                        value_label.setFont(QFont("宋体", 16))
-                    else:
-                        value_label.setFont(QFont("宋体", 20))
+                    if self.current_table == "ancienttable1":
+                        if col_num == 2:  # 古音表 上古聲用IpaP字體
+                            value_label.setFont(QFont("IpaP", 20))
+                        elif col_num == 0:  # 古音表 序號的字小一點
+                            value_label.setFont(QFont("宋体", 16))
+                        else:
+                            value_label.setFont(QFont("宋体", 20))
+                    elif self.current_table == "guangyun":
+                        if col_num == 2:  # 廣韻表 構擬用IpaP
+                            value_label.setFont(QFont("IpaP", 20))
+                        elif  col_num == 11 or col_num == 0:  # 廣韻表 序號和頁序的字小一點
+                            value_label.setFont(QFont("宋体", 16))
+                        else:
+                            value_label.setFont(QFont("宋体", 20))
+                    elif self.current_table == "yupianfanqiejiao":
+                        if col_num == 2 or col_num == 11 or col_num == 13:
+                            value_label.setFont(QFont("IpaP", 15))
+                        elif  col_num == 14 or col_num == 15 or col_num == 16 or col_num == 17:
+                            value_label.setFont(QFont("宋体", 15))
+                        else:
+                            value_label.setFont(QFont("宋体", 18))
 
                     # 获取表格总行数和总列数
                     total_rows = len(result)
@@ -4582,7 +5540,7 @@ class FanqieCompareWindow(QWidget):
         FQinput_layout.addStretch(1)
 
         # 添加提示標籤
-        FQtip_label = QLabel("*提示：僅支持繁體、單個漢字輸入\n————反切對照表數據：Poem————")
+        FQtip_label = QLabel("*提示：僅支持繁體、單個漢字輸入\n————反切對照表7475條數據：Poem————")
         FQtip_label.setFont(QFont("Ipap", 13))
         FQtip_label.setStyleSheet("color: gray;")
         FQtip_label.setAlignment(Qt.AlignCenter)  # 水平居中
@@ -4771,7 +5729,9 @@ class UpdateLogWindow(QMainWindow):
 
         aboutinfo_label = QLabel()
         aboutinfo_label.setText(
-            """       賢哉古音是一款按照文科研究思路開發的音韻學電子字典，用更低的操作門檻為語言學研究者提供熟悉的界面。軟件的基礎功能无須聯網，无須任何設置，只需要預先安裝幾種ttf字體。目前版本的材料和數據由王弘治老師提供，軟件製作和測試由郭宇軒完成。
+            """       賢哉古音是一款按照文科研究思路開發的音韻學電子字典，用更低的操作門檻為語言學研究者提供熟悉的界面。"""
+            """軟件的基礎功能无須聯網，无須任何設置，只需要預先安裝幾種ttf字體。"""
+            """目前版本的音韻材料來自王弘治老師和Poem，軟件製作和測試由郭宇軒完成。
         """)
         aboutinfo_label.setFont(QFont("Ipap", 16))
         aboutinfo_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -4812,13 +5772,19 @@ class UpdateLogWindow(QMainWindow):
         # 更新日志内容↓——————————————————————————————————————————
         log_label.setText("""
             <ul style="font-family: 'IpaP'; font-size: 35px; line-height: 2.0;">
-                <li>v1.4.4 【當前版本】<br>
-                            ·聲符分佈和中古聲母：功能名稱改為“[聲符-中古聲母] 關係”；<br>
+                <li>v1.4.5 【當前版本】<br>
+                            ·新增子功能[聲韻匹配試煉場【嘗嘗賢淡】]：匹配聲母或韻部的小遊戲，包括上古韻部、中古韻部、中古聲母同轄字的配合三種模式，並有三个難度等級可選；<br>
+                            ·主頁面：新增退出確認；退出時關閉所有子功能窗口；<br>
+                            ·[查字]：新增字表“玉篇反切校”，數據來源處新增數據條數；<br>
+                            ·[反切對照查詢]：數據來源處新增數據條數；<br>
+                            ·[《廣韻》聲符散佈]：新增單元格雙擊提示；<br>
+                <li>v1.4.4 <br>
+                            ·[聲符分佈和中古聲母]：功能名稱改為“[聲符-中古聲母] 關係”；<br>
                             ·程序：修復桌面圖標顯示錯誤的bug；所有功能窗口不允許重複打開多個；<br>
                             ·新增子功能[《廣韻》聲符散佈]：可查看所有聲符的分佈數據；<br>
                             ·新增子功能[反切對照查詢]：輸入被切字，查看《經典釋文》《玉篇》《廣韻》記載的反切異同；<br>
-                            ·查字：可切換字表查詢，支持原“古音表”，新增“廣韻字表”；新增數據來源說明。<br>
-                            ·關於：修改了部分UI；<br>
+                            ·[查字]：可切換字表查詢，支持原“古音表”，新增“廣韻字表”；新增數據來源說明。<br>
+                            ·[關於]：修改了部分UI；<br>
                             ·新增[開發者窗口]（用戶不可見），更新日誌部分技術性說明移入開發者窗口。<br>
                 <li>v1.4.3 <br>
                             ·查中古韻：未選擇韻部時新增功能說明；備註可顯示有無異讀；<br>
