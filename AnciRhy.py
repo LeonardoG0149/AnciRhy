@@ -18,7 +18,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QLineEdit, QFrame, QSizePolicy, QScrollArea,
                              QToolTip, QRadioButton, QComboBox, QDialog, QTextEdit, QDialogButtonBox, QMenu,
                              QAbstractItemView, QHeaderView, QTableWidgetItem, QTableWidget, QFormLayout,
-                             QToolButton, QSpacerItem, QTextBrowser, QProgressDialog, QGroupBox, QProgressBar, )
+                             QToolButton, QSpacerItem, QTextBrowser, QProgressDialog, QGroupBox, QProgressBar,
+                             QAction, )
 from PyQt5.QtGui import QFont, QIcon, QCursor, QColor, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QSharedMemory, QSystemSemaphore, QSize, QEvent, QTimer, \
     QRect, QThread, QSettings, QObject, QPoint
@@ -237,7 +238,7 @@ class MainWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
 
         # 更新日志按钮样式优化
-        log_button = QPushButton("v 1.5.4 關於賢哉古音")
+        log_button = QPushButton("v 1.5.5 關於賢哉古音")
         log_button.setStyleSheet("""
            QPushButton {
                color: #B22222;  
@@ -3071,6 +3072,167 @@ class ShengyunMatchWindow(QWidget):
         self.conn.close()
         event.accept()
 
+#上古韻部解釋窗口
+class ExplanationWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # 移除幫助按鈕（問號按鈕）
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowTitle("賢哉古音 - 上古韻部說明")
+        self.resize(1000, 800)
+        self.setMinimumSize(1000,700)
+
+        # 創建主佈局
+        layout = QVBoxLayout(self)
+
+        # 標題
+        title_label = QLabel("上古韻部標記說明")
+        title_label.setFont(QFont("康熙字典體", 16))
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+
+        # 說明文字
+        explanation_label = QLabel("由於程序和數據庫限制，部分上古韻部的上標使用數字而非字母標記，現將對應關係說明如下：")
+        explanation_label.setFont(QFont("宋體", 14))
+        explanation_label.setWordWrap(True)
+        layout.addWidget(explanation_label)
+
+        # 創建表格
+        self.table = QTableWidget()
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["賢哉使用的韻部名", "潘悟雲的命名", "韻部的上古音擬音"])
+        self.table.horizontalHeader().setFont(QFont("康熙字典體", 14))
+
+        # 設置表格數據 (保持原樣)
+        data = [
+            ["歌¹", "歌a", "*-al"], ["歌²", "歌e", "*-el"], ["歌³", "歌o", "*-ol"],
+            ["盍¹", "盍a", "*-ab"], ["盍²", "盍e", "*-eb"], ["盍³", "盍o", "*-ob"],
+            ["緝¹", "緝ɯ", "*-ɯb"], ["緝²", "緝i", "*-ib"], ["緝³", "緝u", "*-ub"],
+            ["幽", "幽、幽u", "*-u、*-uʷ【詩經時代已合併】"], ["幽²", "幽ɯ", "*-ɯʷ"], ["幽³", "幽i", "*-iʷ"],
+            ["覺", "覺、覺u", "*-ug、*-ugʷ【詩經時代已合併】"], ["覺²", "覺ɯ", "*-ɯgʷ"], ["覺³", "覺i", "*-igʷ"],
+            ["侵¹", "侵ɯ", "*-ɯm"], ["侵²", "侵i", "*-im"], ["侵³", "侵u", "*-um"],
+            ["談¹", "談a", "*-am"], ["談²", "談e", "*-em"], ["談³", "談o", "*-om"],
+            ["微¹", "微ɯ", "*-ɯl"], ["微²", "微u", "*-ul"],
+            ["文¹", "文ɯ", "*-ɯn"], ["文²", "文u", "*-un"],
+            ["物¹", "物ɯ", "*-ɯd"], ["物²", "物u", "*-ud"],
+            ["宵¹", "宵a", "*-aʷ"], ["宵²", "宵e", "*-eʷ"], ["宵³", "宵o", "*-oʷ"],
+            ["藥¹", "藥a", "*-agʷ"], ["藥²", "藥e", "*-egʷ"], ["藥³", "藥o", "*-ogʷ"],
+            ["元¹", "元a", "*-an"], ["元²", "元e", "*-en"], ["元³", "元o", "*-on"],
+            ["月¹", "月a", "*-ad"], ["月²", "月e", "*-ed"], ["月³", "月o", "*-od"],
+            ["真¹", "真n", "*-in"], ["真²", "真ŋ", "*-iŋ"],
+            ["脂¹", "脂l", "*-il"], ["脂²", "脂", "*-i"],
+            ["質¹", "質d", "*-id"], ["質²", "質g", "*-ig"]
+        ]
+
+        self.table.setRowCount(len(data))
+        for row, (col1, col2, col3) in enumerate(data):
+            item1 = QTableWidgetItem(col1)
+            item2 = QTableWidgetItem(col2)
+            item3 = QTableWidgetItem(col3)
+            item1.setFont(QFont("宋體", 14));
+            item2.setFont(QFont("IpaP", 14));
+            item3.setFont(QFont("IpaP", 14))
+            self.table.setItem(row, 0, item1);
+            self.table.setItem(row, 1, item2);
+            self.table.setItem(row, 2, item3)
+            # 設置居中
+            for col in range(self.table.columnCount()):
+                self.table.item(row, col).setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+
+        # 設置表格不可編輯等屬性
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectItems)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.table.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+
+        # 創建右鍵菜單 (保持原樣)
+        self.create_context_menu()
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+
+        # --- 關鍵設置：強制比例 3:2:5 ---
+        header = self.table.horizontalHeader()
+
+        # 設置為 Interactive，允許我們手動控制寬度，並禁用 Qt 的自動平均拉伸。
+        header.setSectionResizeMode(QHeaderView.Interactive)
+
+        # *** 移除 self.update_column_widths() ***
+        # 初始寬度將在 resizeEvent 中處理，或使用一個技巧來強制刷新：
+        self.table.horizontalHeader().setMinimumSectionSize(0)  # 確保最小寬度不限制比例
+
+        layout.addWidget(self.table)
+
+    def update_column_widths(self):
+        """根據當前表格寬度，按 3:2:5 比例設置列寬"""
+
+        # 獲取表格的視口寬度（即表格內容的實際可用寬度）
+        table_width = self.table.width() - self.table.verticalHeader().width()
+
+        # 減去可能存在的垂直滾動條寬度（如果它可見）
+        # 為了計算精確的列寬，我們應該使用整個表格寬度減去左側行號和滾動條的寬度
+        if self.table.verticalScrollBar().isVisible():
+            # 經驗值或獲取滾動條寬度
+            table_width -= self.table.verticalScrollBar().width()
+
+        # 確保寬度為正
+        if table_width <= 0:
+            return
+
+        # 總比例
+        total_ratio = 10
+
+        # 計算每列的寬度
+        width_col1 = int(table_width * 3 / total_ratio)
+        width_col2 = int(table_width * 2 / total_ratio)
+
+        # 第三列使用剩餘空間，確保總和與 table_width 嚴格相等
+        width_col3 = table_width - width_col1 - width_col2
+
+        # 設置列寬
+        self.table.setColumnWidth(0, width_col1)
+        self.table.setColumnWidth(1, width_col2)
+        self.table.setColumnWidth(2, width_col3)
+
+    def showEvent(self, event):
+        """重載 showEvent，在窗口首次顯示時觸發寬度更新"""
+        super().showEvent(event)
+        # 確保在窗口完全顯示並確定其大小後，我們立即執行第一次寬度調整
+        self.update_column_widths()
+
+    def resizeEvent(self, event):
+        """重載 resizeEvent，在窗口大小改變時重新計算列寬"""
+        super().resizeEvent(event)
+
+        # 僅當水平尺寸改變時才更新，提高效率
+        if event.oldSize().width() != event.size().width():
+            self.update_column_widths()
+
+    # --- 右鍵菜單方法保持不變 ---
+    def create_context_menu(self):
+        """創建右鍵菜單"""
+        self.context_menu = QMenu(self)
+        self.copy_action = QAction("複製", self)
+        self.copy_action.triggered.connect(self.copy_selected_cell)
+        self.context_menu.addAction(self.copy_action)
+
+    def show_context_menu(self, position):
+        """顯示右鍵菜單"""
+        index = self.table.indexAt(position)
+        if index.isValid() and index.row() >= 0:
+            self.table.setCurrentIndex(index)
+            self.context_menu.popup(self.table.viewport().mapToGlobal(position))
+
+    def copy_selected_cell(self):
+        """複製選中的單元格內容"""
+        selected_items = self.table.selectedItems()
+        if selected_items:
+            item = selected_items[0]
+            clipboard = QApplication.clipboard()
+            clipboard.setText(item.text())
+
 
 # 聲符-韵部窗口——————————————————————————————————————————————————————————————————————————————
 # 与聲符-韵部class搭配使用的數據庫相關函數
@@ -3330,6 +3492,11 @@ class DatabaseWorkerException(QObject):
             "真¹": {"allowed": ["先", "山", "臻", "真"], "special": {}},
             "質¹": {"allowed": ["屑", "黠", "質"], "special": {}},
             "脂¹": {"allowed": ["齊", "脂", "皆"], "special": {}},
+            "覺²": {"allowed": ["錫", "屋"], "special": {}},
+            "覺³": {"allowed": ["錫", "藥"], "special": {}},
+            "歌³": {"allowed": ["戈", "麻", "支"], "special": {}},
+            "歌¹": {"allowed": ["戈", "麻", "支", "歌"], "special": {}},
+            "歌³": {"allowed": ["齊", "佳", "支", "脂"], "special": {}},
         }
 
         # 检查是否有对应的规则
@@ -3493,7 +3660,7 @@ class Shengfu_zhongguyunWindow(QWidget):
                 background-color: #4A90E2;
                 color: white;
                 padding: 10px 20px;
-                border-radius: 5px;
+                border-radius: 8px;
             }
             QPushButton:hover {
                 background-color: #357ABD;
@@ -3504,6 +3671,7 @@ class Shengfu_zhongguyunWindow(QWidget):
             }
         """)
         self.exception_btn.installEventFilter(self)
+        self.label5.installEventFilter(self)
         self.exception_btn.clicked.connect(self.on_exception_clicked)
         # 初始设置为不可用，因为韵部还未选择
         self.exception_btn.setEnabled(False)
@@ -3549,12 +3717,57 @@ class Shengfu_zhongguyunWindow(QWidget):
 
         # 添加表格到主布局
         layout.addWidget(self.table_widget)
-        # 添加数据源说明标签
+
+        # 创建一行三列的网格布局
+        source_grid = QGridLayout()
+        source_grid.setSpacing(0)  # 确保列之间没有间隔
+        # 设置列的拉伸因子
+        # 第0列：左侧弹性空间（占50%宽度）
+        source_grid.setColumnStretch(0, 1)
+        # 第1列：source_label（占固定宽度，不拉伸）
+        source_grid.setColumnStretch(1, 0)
+        # 第2列：右侧弹性空间（占50%宽度）
+        source_grid.setColumnStretch(2, 1)
+        # 在左侧列添加弹性空间（用于source_label居中）
+        left_spacer = QLabel()
+        left_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        source_grid.addWidget(left_spacer, 0, 0)
+        # 在中间列添加source_label（已设置居中对齐）
         source_label = QLabel("————數據源：王弘治《古音表》————")
         source_label.setFont(QFont("Ipap", 13))
         source_label.setStyleSheet("color: gray;")
         source_label.setAlignment(Qt.AlignCenter)  # 水平居中
-        layout.addWidget(source_label)
+        source_grid.addWidget(source_label, 0, 1)
+        # 在右侧列添加按钮容器（用于按钮右对齐）
+        btn_container = QHBoxLayout()
+        btn_container.setContentsMargins(0, 0, 0, 0)  # 无边距
+        btn_container.addStretch()  # 添加弹性空间推动按钮到右侧
+        # 创建上古韵部说明按钮（超链接样式）
+        self.explanation_btn = QPushButton("上古韻部說明", self)
+        self.explanation_btn.setFont(QFont("康熙字典體", 12))
+        self.explanation_btn.setStyleSheet("""
+            QPushButton {
+                color: #A0522D;
+                text-decoration: underline;
+                background-color: transparent;
+                border: none;
+                text-align: left;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #FF0000;
+            }
+            QPushButton:pressed {
+                color: #8B0000;
+            }
+        """)
+        self.explanation_btn.setCursor(Qt.PointingHandCursor)
+        self.explanation_btn.clicked.connect(self.open_explanation_window)
+        # 将按钮添加到容器布局
+        btn_container.addWidget(self.explanation_btn)
+        source_grid.addLayout(btn_container, 0, 2)
+        # 将网格布局添加到主布局
+        layout.addLayout(source_grid)
         # 设置主窗口布局
         self.setLayout(layout)
         # 初始化表格状态
@@ -3564,6 +3777,11 @@ class Shengfu_zhongguyunWindow(QWidget):
         self.worker = None
         self.exception_worker_thread = None
         self.exception_worker = None
+
+    def open_explanation_window(self):
+        """打开上古韵部说明窗口"""
+        explanation_window = ExplanationWindow(self)
+        explanation_window.exec_()
 
     def on_exception_btn_state_changed(self, enabled):
         """根据按钮的启用状态改变鼠标图标"""
@@ -3614,6 +3832,11 @@ class Shengfu_zhongguyunWindow(QWidget):
                 else:
                     self.exception_btn.setCursor(Qt.ForbiddenCursor)
                 return True
+            # 处理label5的大小变化
+        if obj == self.label5 and event.type() == QEvent.Resize:
+            # 当label5大小变化时，更新按钮高度
+            self.exception_btn.setFixedHeight(self.label5.height())
+            return super().eventFilter(obj, event)
         return super().eventFilter(obj, event)
 
     def on_mode_changed(self, text):
@@ -3971,7 +4194,7 @@ class Shengfu_zhongguyunWindow(QWidget):
 
         # 标题标签
         title_label = QLabel(title_text)
-        title_label.setFont(QFont("宋体", 16))
+        title_label.setFont(QFont("宋体", 16, QFont.Bold))
         title_label.setStyleSheet("color: #8B0000; padding: 10px;")
         layout.addWidget(title_label)
 
@@ -4554,7 +4777,7 @@ class Shengfu_zhonggushengWindow(QWidget):
 
         # 标题标签
         title_label = QLabel(f"聲符為「{shengfu}」的「{shengmu}」母字共 {count} 個:")
-        title_label.setFont(QFont("宋体", 16))
+        title_label.setFont(QFont("宋体", 16, QFont.Bold))
         title_label.setStyleSheet("color: #8B0000; padding: 10px;")
         layout.addWidget(title_label)
 
@@ -5073,7 +5296,7 @@ class ShengfuSanbuWindow(QWidget):
 
         # 标题标签
         title_label = QLabel(f"聲符為「{shengfu}」的「{shengmu}」母字共 {count} 個:")
-        title_label.setFont(QFont("宋体", 16))
+        title_label.setFont(QFont("宋体", 16, QFont.Bold))
         title_label.setStyleSheet("color: #8B0000; padding: 10px;")
         layout.addWidget(title_label)
 
@@ -5259,7 +5482,28 @@ class ZhongguyunWindow(QWidget):
 
         # 添加彈性空間，讓按鈕靠右
         filter_layout.addStretch()
-
+        # 创建上古韵部说明按钮（超链接样式）
+        self.explanation_btn = QPushButton("上古韻部說明", self)
+        self.explanation_btn.setFont(QFont("康熙字典體", 12))
+        self.explanation_btn.setStyleSheet("""
+                    QPushButton {
+                        color: #A0522D;
+                        text-decoration: underline;
+                        background-color: transparent;
+                        border: none;
+                        text-align: left;
+                        padding: 0px;
+                    }
+                    QPushButton:hover {
+                        color: #FF0000;
+                    }
+                    QPushButton:pressed {
+                        color: #8B0000;
+                    }
+                """)
+        self.explanation_btn.setCursor(Qt.PointingHandCursor)
+        self.explanation_btn.clicked.connect(self.open_explanation_window)
+        filter_layout.addWidget(self.explanation_btn)
         # 在filter_layout中添加打印按钮
         self.print_button = QPushButton("打印此表")
         self.print_button.setFont(QFont("康熙字典體", 14))
@@ -5314,6 +5558,11 @@ class ZhongguyunWindow(QWidget):
         self.current_label = None
 
         self._show_remark_result.connect(self.show_remark_dialog)
+
+    def open_explanation_window(self):
+        """打开上古韵部说明窗口"""
+        explanation_window = ExplanationWindow(self)
+        explanation_window.exec_()
 
     def on_combobox_changed(self, text):
         """处理下拉框选择变更"""
@@ -6140,11 +6389,17 @@ class ShangguyunWindow(QWidget):
         # 1. L半部分 - 放置按钮
         button_frame = QFrame(self)
         button_frame.setFixedWidth(600)
-        button_layout = QGridLayout(button_frame)
+
+        # 创建垂直布局作为button_frame的主布局
+        button_main_layout = QVBoxLayout(button_frame)
+
+        # 上半部分：原来的按钮网格布局
+        grid_frame = QFrame()
+        grid_layout = QGridLayout(grid_frame)
 
         # 设置按钮之间的间距
-        button_layout.setHorizontalSpacing(20)  # 设置按钮左右之间的间距
-        button_layout.setVerticalSpacing(20)  # 设置按钮上下之间的间距
+        grid_layout.setHorizontalSpacing(20)  # 设置按钮左右之间的间距
+        grid_layout.setVerticalSpacing(20)  # 设置按钮上下之间的间距
 
         # 字符列表
         self.selected_button = None
@@ -6174,7 +6429,7 @@ class ShangguyunWindow(QWidget):
             button.setCursor(Qt.PointingHandCursor)  # 鼠标悬停时显示手形光标
 
             # 将按钮添加到布局
-            button_layout.addWidget(button, row, column)
+            grid_layout.addWidget(button, row, column)
             # 列数加一
             column += 1
             if sys.platform == 'darwin':
@@ -6187,6 +6442,49 @@ class ShangguyunWindow(QWidget):
                     column = 0  # 新行从第 0 列开始
 
         # 将按钮布局放入主布局
+        self.main_layout.addWidget(button_frame)
+
+        # 将网格布局添加到上半部分
+        button_main_layout.addWidget(grid_frame)
+        button_main_layout.addStretch(1)  # 添加弹性空间，因子为1
+        # 下半部分：专门放置说明按钮的布局
+        bottom_frame = QFrame(self)
+        # 设置无边框，无边距
+        bottom_frame.setFrameShape(QFrame.NoFrame)
+        bottom_frame.setContentsMargins(0, 0, 0, 0)
+        bottom_layout = QHBoxLayout(bottom_frame)
+        # 布局边距设为0
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        # 添加上古韵部说明按钮（超链接样式）
+        self.explanation_btn = QPushButton("上古韻部說明", self)
+        self.explanation_btn.setFont(QFont("康熙字典體", 12))
+        self.explanation_btn.setStyleSheet("""
+            QPushButton {
+                color: 	#A0522D;
+                text-decoration: underline;
+                background-color: transparent;
+                border: none;
+                text-align: left;
+                padding: 0px;  /* 设置内边距为0 */
+            }
+            QPushButton:hover {
+                color: #FF0000;
+            }
+            QPushButton:pressed {
+                color: #8B0000;
+            }
+        """)
+        self.explanation_btn.setCursor(Qt.PointingHandCursor)
+        self.explanation_btn.clicked.connect(self.open_explanation_window)
+        # 将说明按钮添加到底部布局，左对齐
+        bottom_layout.addWidget(self.explanation_btn)
+        bottom_layout.addStretch()  # 添加弹性空间，使按钮保持在左侧
+        # 将底部布局添加到主垂直布局
+        button_main_layout.addWidget(bottom_frame)
+        # 添加最小间距（0像素）并添加弹性空间
+        button_main_layout.addSpacing(0)  # 设置最小间距为0
+
+        # 将按钮框架添加到主布局
         self.main_layout.addWidget(button_frame)
 
         # 2. R半部分 __________________
@@ -6207,6 +6505,11 @@ class ShangguyunWindow(QWidget):
 
         # 设置主窗口的布局
         self.setLayout(self.main_layout)
+
+    def open_explanation_window(self):
+        """打开上古韵部说明窗口"""
+        explanation_window = ExplanationWindow(self)
+        explanation_window.exec_()
 
     def create_click_handler(self, button, shangguyunchar):
         # 返回lambda以正确处理点击事件
@@ -6778,6 +7081,28 @@ class SearchCharaWindow(QWidget):
         self.table_combo.currentIndexChanged.connect(self.change_table)
         top_layout.addWidget(self.table_combo)
         top_layout.addStretch(1)  # 右侧伸缩空间
+        # 创建上古韵部说明按钮（超链接样式）
+        self.explanation_btn = QPushButton("上古韻部說明", self)
+        self.explanation_btn.setFont(QFont("康熙字典體", 12))
+        self.explanation_btn.setStyleSheet("""
+                    QPushButton {
+                        color: #A0522D;
+                        text-decoration: underline;
+                        background-color: transparent;
+                        border: none;
+                        text-align: left;
+                        padding: 0px;
+                    }
+                    QPushButton:hover {
+                        color: #FF0000;
+                    }
+                    QPushButton:pressed {
+                        color: #8B0000;
+                    }
+                """)
+        self.explanation_btn.setCursor(Qt.PointingHandCursor)
+        self.explanation_btn.clicked.connect(self.open_explanation_window)
+        top_layout.addWidget(self.explanation_btn)
         # ========================================
 
         # 創建輸入框和標籤的布局
@@ -6850,6 +7175,11 @@ class SearchCharaWindow(QWidget):
         self.table_layout = QGridLayout(table_container)
         self.table_layout.setSpacing(2)  # 设置布局的间距为 2
         scroll_area.setWidget(table_container)
+
+    def open_explanation_window(self):
+        """打开上古韵部说明窗口"""
+        explanation_window = ExplanationWindow(self)
+        explanation_window.exec_()
 
     # 更新提示标签的方法（带动画效果）
     def update_tip_label(self, animate=True):
@@ -7462,7 +7792,10 @@ class UpdateLogWindow(QMainWindow):
         # 更新日志内容
         log_label.setText(f"""
             <ul style="font-family: 'IpaP'; font-size: {system_font_size}; line-height: 2.0;">
-                <li>v1.5.4【當前版本】 <br>
+                <li>v1.5.5【當前版本】 <br>
+                            ·[韻部-聲符-韻部] 關係：修復篩選功能缺失上古“歌¹”“歌²”“歌³”“覺²”“覺³”韻的規則的問題。<br>
+                            ·上古韻部相關功能：新增“上古韻部說明”按鈕和的說明窗口。<br>
+                <li>v1.5.4 <br>
                             ·[韻部-聲符-韻部] 關係：新增“篩選例外”按鈕，【從上古韻觀察】模式下可依照鄭張尚芳《上古音系》韻類演變規則，篩查不符合韻部發展關係的字。<br>
                             ·《廣韻》聲符散佈：首次加載新增提示窗口，修復加載時點擊窗口卡死的問題；表格以熱力圖樣式展示。<br>
                             ·支持高DPI縮放。<br>
@@ -7524,7 +7857,7 @@ class UpdateLogWindow(QMainWindow):
                             ·中古音韻部-韻圖顯示：修復左上角選中的韻部提示顯示不全的bug；韻圖首列按照《方言調查字表》的聲母順序重新排布；<br>
                             ·已知問題：使用bot對話查詢時，可能出現閃退，待修復。<br>
                 <li>v1.3.3<br>
-                            ·查字窗口:允許調整高度、允許表格滾動，以支持顯示讀音較多的字；<br>
+                            ·查字窗口：允許調整高度、允許表格滾動，以支持顯示讀音較多的字；<br>
                             ·中古音韻部-韻圖顯示：可以篩選上古韻部來源。<br>
                 <li>v1.3.0<br>
                             ·各窗口的輸出表格：支持選中單元格内的字符，使用Ctrl+C複制。<br>
@@ -7602,7 +7935,7 @@ class UpdateLogWindow(QMainWindow):
                             ·查中古韻部：按鈕基於切韻韻系、廣韻韻目重新排序；<br>
                             ·新增子功能：[更新日誌]。<br>                                
                 <li>v1.0.1 - UI適配部分高分辨率設備。</li>                          
-                <li>v1.0.0 - 初始版本打包。</li>
+                <li>v1.0.0 - 初始版本打包。</li> 
             </ul>
         """)  # 這屬於html代碼↑
         font = QFont("Aa古典刻本宋", 20)  # 设置字体和字号
